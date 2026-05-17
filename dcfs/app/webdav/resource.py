@@ -1,0 +1,86 @@
+import asyncio
+import os.path
+from typing import Optional
+
+from asgidav.resource import Resource as _Resource
+from dcfs.app.fs_cache import gfc
+from dcfs.core import Client, Ops
+from dcfs.core.model import TGFSFileDesc, TGFSFileRef
+from dcfs.errors import TechnicalError
+from dcfs.reqres import FileContent
+
+
+class Resource(_Resource):
+    def __init__(self, path: str, client: Client):
+        super().__init__(f"/{client.name}{path}")
+
+        self.__relative_path = path
+        self.__client = client
+        self.__fs_cache = gfc[client.name]
+        self.__ops = Ops(client)
+
+        if not (fr := self.__ops.stat_file(path)):
+            raise TechnicalError(f"Resource {path} does not exist")
+
+        self.__fr: TGFSFileRef = fr
+        self.__fd_value: Optional[TGFSFileDesc] = None
+        self.__lock = asyncio.Lock()
+
+    async def __fd(self) -> TGFSFileDesc:
+        async with self.__lock:
+            if self.__fd_value is None:
+                self.__fd_value = await self.__ops.desc(self.__relative_path)
+        return self.__fd_value
+
+    async def creation_date(self) -> int:
+        return int((await self.__fd()).created_at.timestamp())
+
+    async def last_modified(self) -> int:
+        return int((await self.__fd()).get_latest_version().updated_at_timestamp)
+
+    async def content_length(self):
+        fv = (await self.__fd()).get_latest_version()
+        # Ask the file-content repository for the logical size. The default
+        # implementation returns ``fv.size`` (the on-wire byte count); the
+        # encryption decorator returns the plaintext size instead, so WebDAV
+        # clients see the size they will actually receive.
+        return await self.__client.fc_repo.content_length(fv)
+
+    async def content_type(self):
+        return "application/octet-stream"
+
+    async def display_name(self) -> str:
+        return self.__fr.name
+
+    async def get_content(self, begin: int = 0, end: int = -1) -> FileContent:
+        return await self.__ops.download(
+            self.__relative_path,
+            begin,
+            end,
+            os.path.basename(self.__relative_path),
+        )
+
+    async def overwrite(self, content: FileContent, size: int) -> None:
+        self.__fs_cache.reset(self.__relative_path)
+        await self.__ops.upload_from_stream(content, size, self.__relative_path)
+
+    async def remove(self) -> None:
+        self.__fs_cache.reset_parent(self.__relative_path)
+        await self.__ops.rm_file(self.__relative_path)
+
+    def _remove_prefix(self, destination: str) -> str:
+        prefix = f"/webdav/{self.__client.name}"
+        if destination.startswith(prefix):
+            return destination[len(prefix) :]
+        return destination
+
+    async def copy_to(self, destination: str) -> None:
+        destination = self._remove_prefix(destination)
+        self.__fs_cache.reset_parent(destination)
+        await self.__ops.cp_file(self.__relative_path, destination)
+
+    async def move_to(self, destination: str) -> None:
+        destination = self._remove_prefix(destination)
+        self.__fs_cache.reset_parent(self.__relative_path)
+        self.__fs_cache.reset_parent(destination)
+        await self.__ops.mv_file(self.__relative_path, destination)

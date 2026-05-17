@@ -1,0 +1,29 @@
+discord:
+  bot_tokens:
+    - "TEST_BOT_TOKEN"
+  private_file_channel:
+    - "111222333444555666"
+  max_file_size_mb: 25
+tgfs:
+  users:
+    test:
+      password: test
+      readonly: false
+  download:
+    chunk_size_kb: 512
+  jwt:
+    secret: test-secret
+    algorithm: HS256
+    life: 3600
+  metadata:
+    "111222333444555666":
+      name: default
+      type: pinned_message
+  server:
+    host: 127.0.0.1
+    port: 1901
+  encryption:
+    enabled: false
+    passphrase_env: DCFS_MASTER_PASSPHRASE
+    master_salt_file: master.salt
+    chunk_size: 65536

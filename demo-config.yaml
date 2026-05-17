@@ -1,0 +1,52 @@
+discord:
+  # One or more Discord bot tokens.
+  # Multiple tokens enable round-robin distribution across bots for higher
+  # throughput — the same pattern the original tgfs used with multiple Telegram
+  # bots. A single token is sufficient for most use-cases.
+  bot_tokens:
+    - "YOUR_DISCORD_BOT_TOKEN_HERE"
+
+  # The Discord channel ID(s) used as file storage.
+  # Right-click a channel in Discord → Copy Channel ID (Developer Mode required).
+  # Each channel ID listed here must also appear as a key under tgfs.metadata below.
+  private_file_channel:
+    - "1234567890123456789"
+
+  # Maximum attachment size per Discord message in MB.
+  # Free servers / unbooted: 25 MB
+  # Server boost level 2  : 50 MB
+  # Server boost level 3  : 100 MB
+  # Discord Nitro (sender): 500 MB
+  max_file_size_mb: 25
+
+tgfs:
+  users:
+    admin:
+      password: changeme
+      readonly: false
+  download:
+    chunk_size_kb: 1024
+  jwt:
+    secret: change-this-secret
+    algorithm: HS256
+    life: 604800   # 7 days in seconds
+  metadata:
+    "1234567890123456789":
+      name: default
+      type: pinned_message
+  server:
+    host: 0.0.0.0
+    port: 1900
+  # ---------------------------------------------------------------------------
+  # Optional at-rest encryption (unchanged from tgfs).
+  #
+  # When enabled: true, every file is encrypted with AES-256-GCM in 64 KiB
+  # chunks before it is uploaded. The Discord channel only ever sees ciphertext.
+  # ---------------------------------------------------------------------------
+  encryption:
+    enabled: false
+    # passphrase: "change-me-or-use-a-file"
+    passphrase_env: DCFS_MASTER_PASSPHRASE
+    # passphrase_file: secrets/master.passphrase
+    master_salt_file: master.salt
+    chunk_size: 65536

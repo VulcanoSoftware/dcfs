@@ -76,7 +76,7 @@ export default class ManagerClient {
     );
   }
 
-  async importTelegramMessage(
+  async importDiscordMessage(
     channelId: number,
     messageId: number,
     directory: string,
@@ -110,20 +110,17 @@ export default class ManagerClient {
 
   formatSpeed(bytesPerSec?: number): string {
     if (!bytesPerSec || bytesPerSec === 0) return "";
-
     const k = 1024;
     const sizes = ["B/s", "KB/s", "MB/s", "GB/s"];
     const i = Math.floor(Math.log(bytesPerSec) / Math.log(k));
     const value = parseFloat((bytesPerSec / Math.pow(k, i)).toFixed(1));
-
     return `${value} ${sizes[i]}`;
   }
 
   formatDate(dateString?: string): string {
     if (!dateString) return "";
     try {
-      const date = new Date(dateString);
-      return date.toLocaleString();
+      return new Date(dateString).toLocaleString();
     } catch {
       return dateString;
     }
@@ -131,27 +128,19 @@ export default class ManagerClient {
 
   getTaskStatusColor(status: string): string {
     switch (status) {
-      case "pending":
-        return "#f59e0b"; // amber
-      case "in_progress":
-        return "#3b82f6"; // blue
-      case "completed":
-        return "#10b981"; // green
-      case "failed":
-        return "#ef4444"; // red
-      default:
-        return "#6b7280"; // gray
+      case "pending": return "#FEE75C";
+      case "in_progress": return "#5865F2";
+      case "completed": return "#57F287";
+      case "failed": return "#ED4245";
+      default: return "#949BA4";
     }
   }
 
   getTaskTypeIcon(type: string): string {
     switch (type) {
-      case "upload":
-        return "↑";
-      case "download":
-        return "↓";
-      default:
-        return "?";
+      case "upload": return "↑";
+      case "download": return "↓";
+      default: return "?";
     }
   }
 }

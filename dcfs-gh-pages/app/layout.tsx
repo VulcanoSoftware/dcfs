@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "TGFS - Telegram File System",
-  description: "Transform your Telegram into a powerful cloud storage solution",
+  title: "DCFS - Discord File System",
+  description: "Transform your Discord into a powerful WebDAV cloud storage solution",
 };
 
 export default function RootLayout({

@@ -6,10 +6,10 @@ export default function Home() {
       <div className="container mx-auto px-6 py-12">
         <header className="text-center mb-16">
           <h1 className="text-5xl font-bold text-white mb-4">
-            TGFS
+            DCFS
           </h1>
           <p className="text-xl text-slate-300 max-w-2xl mx-auto">
-            Telegram becomes a WebDAV server.
+            Discord becomes a WebDAV server.
           </p>
         </header>
 
@@ -42,16 +42,19 @@ export default function Home() {
                   Config Generator
                 </h2>
               </div>
+              <p className="text-slate-400 mb-4 text-sm">
+                Generate your DCFS config.yaml interactively — just fill in your Discord bot token and channel ID.
+              </p>
               <div className="text-blue-400 font-medium group-hover:text-blue-300">
                 Generate Config →
               </div>
             </div>
           </Link>
 
-          <Link href="/telegram-mini-app" className="group">
-            <div className="bg-slate-800 rounded-xl p-8 shadow-lg hover:shadow-xl transition-all duration-300 border border-slate-700 group-hover:border-green-600">
+          <Link href="/discord-app" className="group">
+            <div className="bg-slate-800 rounded-xl p-8 shadow-lg hover:shadow-xl transition-all duration-300 border border-slate-700 group-hover:border-indigo-500">
               <div className="flex items-center mb-4">
-                <div className="w-12 h-12 bg-green-500 rounded-lg flex items-center justify-center mr-4">
+                <div className="w-12 h-12 bg-indigo-500 rounded-lg flex items-center justify-center mr-4">
                   <svg
                     className="w-6 h-6 text-white"
                     fill="none"
@@ -67,11 +70,14 @@ export default function Home() {
                   </svg>
                 </div>
                 <h2 className="text-2xl font-semibold text-white">
-                  Telegram Mini App
+                  File Manager
                 </h2>
               </div>
-              <div className="text-green-400 font-medium group-hover:text-green-300">
-                Open Mini App →
+              <p className="text-slate-400 mb-4 text-sm">
+                Browse, upload, and manage your files stored on Discord — directly from your browser.
+              </p>
+              <div className="text-indigo-400 font-medium group-hover:text-indigo-300">
+                Open File Manager →
               </div>
             </div>
           </Link>
@@ -106,6 +112,7 @@ export default function Home() {
               href="https://www.anthropic.com/claude-code"
               target="_blank"
               rel="noopener noreferrer"
+              className="text-slate-300 hover:text-white transition-colors"
             >
               Claude Code
             </a>

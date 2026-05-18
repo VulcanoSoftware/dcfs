@@ -1,14 +1,31 @@
-# DCFS — Discord Cloud File System
+<p align="center">
+  <img src="https://raw.githubusercontent.com/VulcanoSoftware/dcfs/main/tgfs.png" alt="logo" width="100"/>
+</p>
 
-DCFS is a WebDAV server that uses **Discord channels as a storage backend**.
-It is a drop-in replacement for [tgfs](https://github.com/TheodoreKrypton/tgfs),
-with the Telegram backend swapped out for Discord while keeping everything
-else — WebDAV interface, encryption, metadata storage, authentication — exactly
-the same.
+# dcfs
 
-## How it works
+Discord becomes a WebDAV server.
 
-| tgfs (original) | dcfs (this project) |
+dcfs is a fork of [tgfs](https://github.com/TheodoreKrypton/tgfs) with the Telegram backend swapped out for Discord. It was built as a personal project to complement tgfs — running both side by side gives you redundancy across two independent cloud storage backends using the exact same WebDAV interface and tooling.
+
+Refer to the setup instructions below for installation and usage.
+
+## Tested Clients
+* [rclone](https://rclone.org/)
+* [Cyberduck](https://cyberduck.io/)
+* [WinSCP](https://winscp.net/)
+* [Documents](https://readdle.com/documents) by Readdle
+
+## Features
+* Upload and download files to/from a private Discord channel via WebDAV
+* Group files on Discord channels into folders
+* File size is unlimited (larger files are chunked into parts but appear as a single file to the user)
+* At-rest AES-256-GCM encryption, identical to tgfs
+* Drop-in replacement for tgfs — same WebDAV interface, same config structure
+
+## How it relates to tgfs
+
+| tgfs (original) | dcfs (this fork) |
 |---|---|
 | Telegram MTProto client (telethon / pyrogram) | Discord REST API (aiohttp) |
 | Telegram channel as storage | Discord channel as storage |
@@ -17,18 +34,13 @@ the same.
 | File parts via SaveBigFilePart / SaveFilePart | Multipart uploads as Discord attachments |
 | 2 GB / 4 GB file parts (Premium) | 25 MB per attachment (free) / up to 500 MB (Nitro) |
 
-Files larger than `max_file_size_mb` are automatically split into multiple
-Discord messages, each carrying one attachment part, and reassembled on
-download — exactly as tgfs did for large files.
-
 ## Setup
 
 ### 1. Create a Discord bot
 
 1. Go to <https://discord.com/developers/applications> and create a new application.
 2. Under **Bot**, click **Add Bot**.
-3. Enable **Message Content Intent** and **Server Members Intent** under
-   Privileged Gateway Intents.
+3. Enable **Message Content Intent** and **Server Members Intent** under Privileged Gateway Intents.
 4. Copy the bot token.
 5. Invite the bot to your server with at minimum the following permissions:
    - Read Messages / View Channels
@@ -39,8 +51,7 @@ download — exactly as tgfs did for large files.
 
 ### 2. Get the storage channel ID
 
-Enable **Developer Mode** in Discord settings (Settings → Advanced → Developer
-Mode), then right-click your storage channel and select **Copy Channel ID**.
+Enable **Developer Mode** in Discord settings (Settings → Advanced → Developer Mode), then right-click your storage channel and select **Copy Channel ID**.
 
 ### 3. Configure
 
@@ -91,8 +102,7 @@ python main.py
 
 ## Multiple bots
 
-Like tgfs, you can provide multiple bot tokens under `bot_tokens` to spread
-upload/download traffic across bots:
+Like tgfs, you can provide multiple bot tokens under `bot_tokens` to spread upload/download traffic across bots:
 
 ```yaml
 discord:
@@ -104,9 +114,7 @@ discord:
 
 ## Encryption
 
-At-rest encryption is identical to tgfs: AES-256-GCM with per-chunk
-authentication, keyed from a user-supplied passphrase via Argon2. Enable it
-in the config:
+At-rest encryption is identical to tgfs: AES-256-GCM with per-chunk authentication, keyed from a user-supplied passphrase via Argon2. Enable it in the config:
 
 ```yaml
 tgfs:
@@ -119,15 +127,34 @@ tgfs:
 
 ## Differences from tgfs
 
-- **No Telegram account needed** — only Discord bot token(s).
-- **Smaller per-message file size** — Discord's free tier caps attachments at
-  25 MB. Boosted servers raise this limit. Large files are chunked automatically.
-- **No pyrogram / telethon dependency** — replaced with `aiohttp`.
-- **Message search** — uses Discord channel history scan instead of Telegram's
-  built-in search API.
-- **`edit_message_media`** — Discord does not support replacing an attachment
-  in-place; DCFS deletes the old message and sends a new one, then updates
-  the stored message ID.
+* **No Telegram account needed** — only Discord bot token(s).
+* **Smaller per-message file size** — Discord's free tier caps attachments at 25 MB. Boosted servers raise this limit. Large files are chunked automatically.
+* **No pyrogram / telethon dependency** — replaced with `aiohttp`.
+* **Message search** — uses Discord channel history scan instead of Telegram's built-in search API.
+* **`edit_message_media`** — Discord does not support replacing an attachment in-place; dcfs deletes the old message and sends a new one, then updates the stored message ID.
+
+## Development
+
+Install the dependencies:
+```bash
+poetry install
+```
+
+Run the app:
+```bash
+poetry run python main.py
+```
+
+Typecheck && lint:
+```bash
+make mypy
+make ruff
+```
+
+Before committing and pushing, run the following command to install git hooks:
+```bash
+pre-commit install
+```
 
 ## License
 

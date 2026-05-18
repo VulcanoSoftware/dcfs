@@ -1,7 +1,7 @@
 # DCFS — Discord Cloud File System
 
 DCFS is a WebDAV server that uses **Discord channels as a storage backend**.
-It is a drop-in replacement for [tgfs](https://github.com/WheatCarrier/tgfs),
+It is a drop-in replacement for [tgfs](https://github.com/TheodoreKrypton/tgfs),
 with the Telegram backend swapped out for Discord while keeping everything
 else — WebDAV interface, encryption, metadata storage, authentication — exactly
 the same.

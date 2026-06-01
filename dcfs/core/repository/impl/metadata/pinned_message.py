@@ -2,7 +2,7 @@ import json
 from typing import AsyncIterator, Optional
 
 from dcfs.core.api import MessageApi
-from dcfs.core.model import TGFSDirectory, TGFSFileVersion, TGFSMetadata
+from dcfs.core.model import DCFSDirectory, DCFSFileVersion, DCFSMetadata
 from dcfs.core.repository.interface import IFileContentRepository, IMetaDataRepository
 from dcfs.errors import (
     MetadataNotInitialized,
@@ -15,7 +15,7 @@ from dcfs.reqres import (
 )
 
 
-class TGMsgMetadataRepository(IMetaDataRepository):
+class DCMsgMetadataRepository(IMetaDataRepository):
     METADATA_FILE_NAME = "metadata.json"
 
     def __init__(self, message_api: MessageApi, fc_repo: IFileContentRepository):
@@ -56,23 +56,23 @@ class TGMsgMetadataRepository(IMetaDataRepository):
         return bytes(result)
 
     async def new_metadata(self) -> MessageRespWithDocument:
-        root = TGFSDirectory.root_dir()
-        self.metadata = TGFSMetadata(root)
+        root = DCFSDirectory.root_dir()
+        self.metadata = DCFSMetadata(root)
         self._message_id = None
         await self.push()
         return await self._message_api.get_pinned_message()
 
-    async def get(self) -> TGFSMetadata:
+    async def get(self) -> DCFSMetadata:
         try:
             pinned_message = await self._message_api.get_pinned_message()
         except NoPinnedMessage:
             pinned_message = await self.new_metadata()
 
-        temp_fv = TGFSFileVersion.from_sent_file_message(
+        temp_fv = DCFSFileVersion.from_sent_file_message(
             SentFileMessage(pinned_message.message_id, pinned_message.document.size)
         )
 
-        metadata = TGFSMetadata.from_dict(
+        metadata = DCFSMetadata.from_dict(
             json.loads(
                 await self._read_all(
                     await self._fc_repo.get(

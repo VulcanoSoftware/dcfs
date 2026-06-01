@@ -1,4 +1,4 @@
-from dcfs.core.model import TGFSDirectory, TGFSMetadata
+from dcfs.core.model import DCFSDirectory, DCFSMetadata
 from dcfs.core.repository.interface import IMetaDataRepository
 
 
@@ -10,10 +10,10 @@ class MetaDataApi:
         await self.__metadata_repo.init()
 
     def reset(self) -> None:
-        self.__metadata_repo.metadata = TGFSMetadata(dir=TGFSDirectory.root_dir())
+        self.__metadata_repo.metadata = DCFSMetadata(dir=DCFSDirectory.root_dir())
 
     async def push(self) -> None:
         await self.__metadata_repo.push()
 
-    def get_root_directory(self) -> TGFSDirectory:
+    def get_root_directory(self) -> DCFSDirectory:
         return self.__metadata_repo.root()

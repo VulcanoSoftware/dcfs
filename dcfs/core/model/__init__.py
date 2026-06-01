@@ -1,22 +1,22 @@
-from .directory import TGFSDirectory, TGFSFileRef
-from .file import EMPTY_FILE_MESSAGE, TGFSFileDesc, TGFSFileVersion
-from .metadata import TGFSMetadata
+from .directory import DCFSDirectory, DCFSFileRef
+from .file import EMPTY_FILE_MESSAGE, DCFSFileDesc, DCFSFileVersion
+from .metadata import DCFSMetadata
 from .serialized import (
-    TGFSDirectorySerialized,
-    TGFSFileDescSerialized,
-    TGFSFileRefSerialized,
-    TGFSFileVersionSerialized,
+    DCFSDirectorySerialized,
+    DCFSFileDescSerialized,
+    DCFSFileRefSerialized,
+    DCFSFileVersionSerialized,
 )
 
 __all__ = [
-    "TGFSMetadata",
-    "TGFSDirectory",
-    "TGFSFileDesc",
-    "TGFSFileVersion",
-    "TGFSFileRef",
-    "TGFSFileDescSerialized",
-    "TGFSFileVersionSerialized",
-    "TGFSFileRefSerialized",
-    "TGFSDirectorySerialized",
+    "DCFSMetadata",
+    "DCFSDirectory",
+    "DCFSFileDesc",
+    "DCFSFileVersion",
+    "DCFSFileRef",
+    "DCFSFileDescSerialized",
+    "DCFSFileVersionSerialized",
+    "DCFSFileRefSerialized",
+    "DCFSDirectorySerialized",
     "EMPTY_FILE_MESSAGE",
 ]

@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`tgfs.crypto.cipher`."""
+"""Unit tests for :mod:`dcfs.crypto.cipher`."""
 
 from __future__ import annotations
 

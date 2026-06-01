@@ -14,7 +14,7 @@ from dcfs.reqres import (
 from dcfs.tasks import create_upload_task
 
 from .client import Client
-from .model import TGFSDirectory, TGFSFileDesc, TGFSFileRef
+from .model import DCFSDirectory, DCFSFileDesc, DCFSFileRef
 
 
 class Ops:
@@ -26,7 +26,7 @@ class Ops:
         if path[-1] == "/" or path[0] != "/":
             raise InvalidPath(path)
 
-    def cd(self, path: str) -> TGFSDirectory:
+    def cd(self, path: str) -> DCFSDirectory:
         current_dir = self._client.dir_api.root
 
         for part in path.split("/"):
@@ -39,7 +39,7 @@ class Ops:
 
         return current_dir
 
-    def stat_file(self, path: str) -> TGFSFileRef:
+    def stat_file(self, path: str) -> DCFSFileRef:
         self._validate_path(path)
 
         dirname, basename = os.path.dirname(path), os.path.basename(path)
@@ -48,13 +48,13 @@ class Ops:
         # cannot find a subdirectory with the given name, so assume it's a file_content
         return self._client.dir_api.get_fr(d, basename)
 
-    async def desc(self, path: str) -> TGFSFileDesc:
+    async def desc(self, path: str) -> DCFSFileDesc:
         file_ref = self.stat_file(path)
         return await self._client.file_api.desc(file_ref)
 
     async def cp_dir(
         self, path_from: str, path_to: str
-    ) -> tuple[TGFSDirectory, TGFSDirectory]:
+    ) -> tuple[DCFSDirectory, DCFSDirectory]:
         self._validate_path(path_from)
 
         dirname_from, basename_from = os.path.dirname(path_from), os.path.basename(
@@ -75,7 +75,7 @@ class Ops:
 
     async def cp_file(
         self, path_from: str, path_to: str
-    ) -> tuple[TGFSFileRef, TGFSFileRef]:
+    ) -> tuple[DCFSFileRef, DCFSFileRef]:
         self._validate_path(path_from)
 
         dirname_from, basename_from = os.path.dirname(path_from), os.path.basename(
@@ -94,7 +94,7 @@ class Ops:
 
         return file_to_copy, res
 
-    async def mkdir(self, path: str, parents: bool) -> TGFSDirectory:
+    async def mkdir(self, path: str, parents: bool) -> DCFSDirectory:
         self._validate_path(path)
         dirname, basename = os.path.dirname(path), os.path.basename(path)
 
@@ -121,17 +121,17 @@ class Ops:
         except FileOrDirectoryDoesNotExist:
             await self._client.file_api.upload(d, FileMessageEmpty.new(name=basename))
 
-    async def mv_dir(self, path_from: str, path_to: str) -> TGFSDirectory:
+    async def mv_dir(self, path_from: str, path_to: str) -> DCFSDirectory:
         dir_from, dir_to = await self.cp_dir(path_from, path_to)
         await self._client.dir_api.rm_dangerously(dir_from)
         return dir_to
 
-    async def mv_file(self, path_from: str, path_to: str) -> TGFSFileRef:
+    async def mv_file(self, path_from: str, path_to: str) -> DCFSFileRef:
         file_from, file_to = await self.cp_file(path_from, path_to)
         await self._client.file_api.rm(file_from)
         return file_to
 
-    async def rm_dir(self, path: str, recursive: bool) -> TGFSDirectory:
+    async def rm_dir(self, path: str, recursive: bool) -> DCFSDirectory:
         self._validate_path(path)
         dirname, basename = os.path.dirname(path), os.path.basename(path)
 
@@ -145,7 +145,7 @@ class Ops:
 
         return dir_to_remove
 
-    async def rm_file(self, path: str) -> TGFSFileRef:
+    async def rm_file(self, path: str) -> DCFSFileRef:
         self._validate_path(path)
         dirname, basename = os.path.dirname(path), os.path.basename(path)
 
@@ -158,7 +158,7 @@ class Ops:
 
     async def _upload(
         self, dirname: str, file_msg: UploadableFileMessage
-    ) -> TGFSFileDesc:
+    ) -> DCFSFileDesc:
         task_tracker = await create_upload_task(
             f"/{self._client.name}{dirname}/{file_msg.name}",
             file_msg.get_size(),
@@ -173,7 +173,7 @@ class Ops:
             await task_tracker.mark_failed(str(ex))
             raise ex
 
-    async def upload_from_local(self, local: str, remote: str) -> TGFSFileDesc:
+    async def upload_from_local(self, local: str, remote: str) -> DCFSFileDesc:
         if not os.path.exists(local) or not os.path.isfile(local):
             raise FileOrDirectoryDoesNotExist(local)
 
@@ -188,7 +188,7 @@ class Ops:
             ),
         )
 
-    async def upload_from_bytes(self, data: bytes, remote: str) -> TGFSFileDesc:
+    async def upload_from_bytes(self, data: bytes, remote: str) -> DCFSFileDesc:
         self._validate_path(remote)
         dirname, basename = os.path.dirname(remote), os.path.basename(remote)
 
@@ -202,7 +202,7 @@ class Ops:
 
     async def upload_from_stream(
         self, stream: AsyncIterator[bytes], size: int, remote: str
-    ) -> TGFSFileDesc:
+    ) -> DCFSFileDesc:
         self._validate_path(remote)
         dirname, basename = os.path.dirname(remote), os.path.basename(remote)
 
@@ -217,7 +217,7 @@ class Ops:
 
     async def import_from_existing_file_message(
         self, message: MessageRespWithDocument, remote: str
-    ) -> TGFSFileDesc:
+    ) -> DCFSFileDesc:
         self._validate_path(remote)
         dirname, basename = os.path.dirname(remote), os.path.basename(remote)
         d = self.cd(dirname)

@@ -3,7 +3,7 @@ import logging
 from typing import Generator, List
 
 from dcfs.core.api import MessageApi
-from dcfs.core.model import TGFSFileVersion
+from dcfs.core.model import DCFSFileVersion
 from dcfs.core.repository.interface import IFileContentRepository
 from dcfs.errors import TechnicalError
 from dcfs.reqres import (
@@ -20,24 +20,18 @@ from .file_uploader import FileUploader
 logger = logging.getLogger(__name__)
 RETRY_INTERVAL = 5  # seconds
 
-PART_SIZE_DEFAULT = 25 * 1024 * 1024  # 25 MB, Discord free tier limit per attachment
-PART_SIZE_PREMIUM = 500 * 1024 * 1024  # 500 MB, Discord Nitro / boosted server limit
+# Discord attachment limit is 25 MB, we use a conservative 20 MB part size
+PART_SIZE = 20 * 1024 * 1024
 
 
-class TGMsgFileContentRepository(IFileContentRepository):
-    def __init__(self, message_api: MessageApi, use_account_api_to_upload: bool):
+class DCMsgFileContentRepository(IFileContentRepository):
+    def __init__(self, message_api: MessageApi):
         self._message_api = message_api
-        self._use_account_api_to_upload = (
-            use_account_api_to_upload and self._message_api.tdlib.account
-        )
 
     async def _send_file(
-        self, file_msg: UploadableFileMessage, use_account_api: bool
+        self, file_msg: UploadableFileMessage
     ) -> SentFileMessage:
-        if use_account_api and (account_api := self._message_api.tdlib.account):
-            api = account_api
-        else:
-            api = self._message_api.tdlib.next_bot
+        api = self._message_api.discord_api.next_bot
 
         uploader = FileUploader(api, file_msg)
         logger.info(
@@ -72,19 +66,13 @@ class TGMsgFileContentRepository(IFileContentRepository):
         res: List[SentFileMessage] = []
         file_name = file_msg.name or "unnamed"
 
-        premium_upload = size > PART_SIZE_DEFAULT and self._use_account_api_to_upload
-
         for i, part_size in enumerate(
-            self._partition(size, PART_SIZE_PREMIUM)
-            if premium_upload
-            else self._partition(size, PART_SIZE_DEFAULT)
+            self._partition(size, PART_SIZE)
         ):
             file_msg.name = f"[part{i+1}]{file_name}"
             file_msg.size = part_size
             res.append(
-                await self._send_file(
-                    file_msg, use_account_api=True if premium_upload else False
-                )
+                await self._send_file(file_msg)
             )
             file_msg.next_part(part_size)
         return res
@@ -95,7 +83,7 @@ class TGMsgFileContentRepository(IFileContentRepository):
             name=name,
         )
 
-        uploader = FileUploader(self._message_api.tdlib.next_bot, file_msg)
+        uploader = FileUploader(self._message_api.discord_api.next_bot, file_msg)
         await uploader.upload()
 
         while True:
@@ -117,7 +105,7 @@ class TGMsgFileContentRepository(IFileContentRepository):
 
     @staticmethod
     def _get_file_part_to_download(
-        fv: TGFSFileVersion, begin: int, end: int
+        fv: DCFSFileVersion, begin: int, end: int
     ) -> Generator[tuple[int, int, int]]:
         if fv.size <= 0:
             return
@@ -158,7 +146,7 @@ class TGMsgFileContentRepository(IFileContentRepository):
             i_part += 1
 
     async def get(
-        self, fv: TGFSFileVersion, begin: int, end: int, name: str
+        self, fv: DCFSFileVersion, begin: int, end: int, name: str
     ) -> FileContent:
         logger.info(f"Retrieving file content for {name}@{fv.id} from {begin} to {end}")
 

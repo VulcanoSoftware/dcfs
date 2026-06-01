@@ -1,16 +1,16 @@
-"""On-disk file header format for encrypted TGFS files.
+"""On-disk file header format for encrypted DCFS files.
 
 The header is the first ``HEADER_SIZE`` bytes of the encrypted payload and is
-written inline at the start of the first Telegram part. Storing the header
-inline (rather than only in the TGFS metadata) means a file can be decrypted
-purely from its Telegram messages plus the master key, even if the TGFS
+written inline at the start of the first Discord part. Storing the header
+inline (rather than only in the DCFS metadata) means a file can be decrypted
+purely from its Discord messages plus the master key, even if the DCFS
 metadata channel/repository is lost or corrupted.
 
 Wire format (big-endian, 60 bytes total):
 
     Offset  Size  Field
     ------  ----  --------------------------------------------------
-       0      4   Magic              "TGFS"  (0x54 0x47 0x46 0x53)
+       0      4   Magic              "DCFS"  (0x54 0x47 0x46 0x53)
        4      2   Header version     uint16, currently 1
        6      2   Algorithm id       uint16, see ``Algorithm``
        8      4   Chunk size         uint32, plaintext bytes per chunk
@@ -34,9 +34,9 @@ from hashlib import sha256
 # Total size of the serialized header in bytes.
 HEADER_SIZE = 60
 
-# Magic bytes identifying a TGFS encrypted blob. Used to fast-fail on
+# Magic bytes identifying a DCFS encrypted blob. Used to fast-fail on
 # non-encrypted or corrupt input.
-MAGIC = b"TGFS"
+MAGIC = b"DCFS"
 
 # Current header layout version. Bumping this should be accompanied by a
 # migration path; the parser refuses unknown versions.
@@ -58,7 +58,7 @@ class Algorithm(enum.IntEnum):
     """Enumeration of supported AEAD algorithms.
 
     Only AES-256-GCM is supported in version 1. New algorithm ids must be
-    added here *and* handled in :class:`tgfs.crypto.cipher.ChunkedAESGCM`.
+    added here *and* handled in :class:`dcfs.crypto.cipher.ChunkedAESGCM`.
     """
 
     AES_256_GCM = 1
@@ -68,7 +68,8 @@ class Algorithm(enum.IntEnum):
 # Splitting the format keeps the MAC computation explicit and easy to audit.
 _BODY_FORMAT = f">4sHHI{FILE_SALT_SIZE}s"
 _BODY_SIZE = struct.calcsize(_BODY_FORMAT)
-assert _BODY_SIZE + HEADER_MAC_SIZE == HEADER_SIZE, "header layout mismatch"
+if _BODY_SIZE + HEADER_MAC_SIZE != HEADER_SIZE:
+    raise RuntimeError("header layout mismatch")
 
 
 class InvalidHeaderError(ValueError):

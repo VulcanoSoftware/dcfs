@@ -55,6 +55,11 @@ class SearchMessageReq(Chat):
     search: str
 
 
+@dataclass
+class DeleteMessagesReq(Chat):
+    message_ids: Tuple[int, ...]
+
+
 GetPinnedMessageReq = Chat
 SendMessageResp = Message
 
@@ -75,30 +80,6 @@ class PinMessageReq(Chat, Message):
 
 
 @dataclass
-class SaveFilePartReq:
-    file_id: int
-    bytes: bytes
-    file_part: int
-
-
-@dataclass
-class SaveBigFilePartReq(SaveFilePartReq):
-    file_total_parts: int
-
-
-@dataclass
-class SaveFilePartResp:
-    success: bool
-
-
-@dataclass
-class UploadedFile:
-    id: int
-    parts: int
-    name: str
-
-
-@dataclass
 class FileAttr:
     name: str
     caption: str
@@ -106,12 +87,13 @@ class FileAttr:
 
 @dataclass
 class SendFileReq(Chat, FileAttr):
-    file: UploadedFile
+    buffer: bytes
 
 
 @dataclass
 class EditMessageMediaReq(Chat, Message):
-    file: UploadedFile
+    buffer: bytes
+    name: str
 
 
 @dataclass

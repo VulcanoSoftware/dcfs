@@ -5,7 +5,7 @@ from typing import Optional
 from asgidav.resource import Resource as _Resource
 from dcfs.app.fs_cache import gfc
 from dcfs.core import Client, Ops
-from dcfs.core.model import TGFSFileDesc, TGFSFileRef
+from dcfs.core.model import DCFSFileDesc, DCFSFileRef
 from dcfs.errors import TechnicalError
 from dcfs.reqres import FileContent
 
@@ -22,11 +22,11 @@ class Resource(_Resource):
         if not (fr := self.__ops.stat_file(path)):
             raise TechnicalError(f"Resource {path} does not exist")
 
-        self.__fr: TGFSFileRef = fr
-        self.__fd_value: Optional[TGFSFileDesc] = None
+        self.__fr: DCFSFileRef = fr
+        self.__fd_value: Optional[DCFSFileDesc] = None
         self.__lock = asyncio.Lock()
 
-    async def __fd(self) -> TGFSFileDesc:
+    async def __fd(self) -> DCFSFileDesc:
         async with self.__lock:
             if self.__fd_value is None:
                 self.__fd_value = await self.__ops.desc(self.__relative_path)

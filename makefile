@@ -8,12 +8,12 @@ ruff:
 
 test:
 	@echo "Running tests..."
-	@TGFS_DATA_DIR=. TGFS_CONFIG_FILE=config-test.yaml pytest
+	@DCFS_DATA_DIR=. DCFS_CONFIG_FILE=config-test.yaml pytest
 
 cov:
 	@echo "Running tests with coverage..."
-	@TGFS_DATA_DIR=. TGFS_CONFIG_FILE=config-test.yaml pytest --cov --cov-report=term-missing
+	@DCFS_DATA_DIR=. DCFS_CONFIG_FILE=config-test.yaml pytest --cov --cov-report=term-missing
 
 build-push:
 	@echo "Building the package..."
-	@docker buildx build --platform linux/amd64,linux/arm64 . -t wheatcarrier/tgfs --push
+	@docker buildx build --platform linux/amd64,linux/arm64 . -t wheatcarrier/dcfs --push

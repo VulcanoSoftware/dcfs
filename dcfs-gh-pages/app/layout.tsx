@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "DCFS - Discord File System",
-  description: "Transform your Discord into a powerful WebDAV cloud storage solution",
+  title: "dcfs - Discord File System",
+  description: "Transform your Discord into a powerful cloud storage solution",
 };
 
 export default function RootLayout({

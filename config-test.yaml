@@ -1,29 +1,32 @@
 discord:
-  bot_tokens:
-    - "TEST_BOT_TOKEN"
+  bot_token: test_bot_token
+  guild_id: 123456789012345678
   private_file_channel:
-    - "111222333444555666"
-  max_file_size_mb: 25
-tgfs:
+    - '114514'
+    - '1919810'
+  delete_messages_on_remove: false
+dcfs:
   users:
-    test:
-      password: test
+    test_user:
+      password: test_password
       readonly: false
   download:
     chunk_size_kb: 512
   jwt:
-    secret: test-secret
+    secret: test_jwt_secret
     algorithm: HS256
     life: 3600
   metadata:
-    "111222333444555666":
-      name: default
+    '114514':
+      name: test-notes-1
       type: pinned_message
+    '1919810':
+      name: test-notes-2
+      type: github_repo
+      github_repo:
+          repo: test_user/test_repo
+          commit: branch
+          access_token: test_github_access_token
   server:
-    host: 127.0.0.1
-    port: 1901
-  encryption:
-    enabled: false
-    passphrase_env: DCFS_MASTER_PASSPHRASE
-    master_salt_file: master.salt
-    chunk_size: 65536
+    host: localhost
+    port: 8080

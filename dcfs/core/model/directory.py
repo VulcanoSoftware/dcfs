@@ -1,3 +1,4 @@
+import datetime
 from dataclasses import dataclass, field
 from typing import Iterable, List, Optional, Self
 
@@ -5,17 +6,17 @@ from dcfs.errors import FileOrDirectoryAlreadyExists, FileOrDirectoryDoesNotExis
 from dcfs.utils.time import FIRST_DAY_OF_EPOCH, ts
 
 from .common import validate_name
-from .serialized import TGFSDirectorySerialized
+from .serialized import DCFSDirectorySerialized, DCFSFileRefSerialized
 
 
 @dataclass
-class TGFSFileRef:
+class DCFSFileRef:
     message_id: int
     name: str
-    location: "TGFSDirectory" = field(repr=False)
+    location: "DCFSDirectory" = field(repr=False)
 
-    def to_dict(self) -> dict:
-        return dict(
+    def to_dict(self) -> DCFSFileRefSerialized:
+        return DCFSFileRefSerialized(
             type="FR",
             messageId=self.message_id,
             name=self.name,
@@ -26,55 +27,73 @@ class TGFSFileRef:
 
 
 @dataclass
-class TGFSDirectory:
+class DCFSDirectory:
     name: str
-    parent: Optional["TGFSDirectory"]
-    children: list["TGFSDirectory"] = field(default_factory=list)
-    files: list[TGFSFileRef] = field(default_factory=list)
+    parent: Optional["DCFSDirectory"]
+    children: list["DCFSDirectory"] = field(default_factory=list)
+    files: list[DCFSFileRef] = field(default_factory=list)
+    created_at: datetime.datetime = field(default_factory=datetime.datetime.now)
+    modified_at: datetime.datetime = field(default_factory=datetime.datetime.now)
 
     def __post_init__(self):
         validate_name(self.name)
 
     @property
     def created_at_timestamp(self) -> int:
-        return ts(FIRST_DAY_OF_EPOCH)
+        return ts(self.created_at)
 
-    def to_dict(self) -> dict:
-        return dict(
+    @property
+    def modified_at_timestamp(self) -> int:
+        return ts(self.modified_at)
+
+    def _touch_modified(self) -> None:
+        self.modified_at = datetime.datetime.now()
+
+    def to_dict(self) -> DCFSDirectorySerialized:
+        return DCFSDirectorySerialized(
             type="D",
             name=self.name,
+            createdAt=self.created_at_timestamp,
+            modifiedAt=self.modified_at_timestamp,
             children=[child.to_dict() for child in self.children],
             files=[file.to_dict() for file in self.files],
         )
 
     @staticmethod
     def from_dict(
-        data: TGFSDirectorySerialized, parent: Optional["TGFSDirectory"] = None
-    ) -> "TGFSDirectory":
-        d = TGFSDirectory(
+        data: DCFSDirectorySerialized, parent: Optional["DCFSDirectory"] = None
+    ) -> "DCFSDirectory":
+        def _read_ts(value: int) -> datetime.datetime:
+            if value > 0:
+                return datetime.datetime.fromtimestamp(value / 1000)
+            return FIRST_DAY_OF_EPOCH
+
+        d = DCFSDirectory(
             name=data["name"],
             parent=parent,
             children=[],
             files=[],
+            created_at=_read_ts(data.get("createdAt", 0) or 0),
+            modified_at=_read_ts(data.get("modifiedAt", 0) or 0),
         )
 
         if data["files"]:
             d.files = [
-                TGFSFileRef(message_id=file["messageId"], name=file["name"], location=d)
+                DCFSFileRef(message_id=file["messageId"], name=file["name"], location=d)
                 for file in data["files"]
                 if file["name"] and file["messageId"]
             ]
 
-        d.children = [TGFSDirectory.from_dict(child, d) for child in data["children"]]
+        d.children = [DCFSDirectory.from_dict(child, d) for child in data["children"]]
         return d
 
     def create_dir(
-        self, name: str, dir_to_copy: Optional["TGFSDirectory"]
-    ) -> "TGFSDirectory":
+        self, name: str, dir_to_copy: Optional["DCFSDirectory"]
+    ) -> "DCFSDirectory":
         if len(self.find_dirs([name])) > 0:
             raise FileOrDirectoryAlreadyExists(name)
 
-        child = TGFSDirectory(
+        child = DCFSDirectory(
             name=name,
             parent=self,
             children=[] if not dir_to_copy else dir_to_copy.children,
@@ -82,56 +101,61 @@ class TGFSDirectory:
         )
 
         self.children.append(child)
+        self._touch_modified()
         return child
 
     @classmethod
     def root_dir(cls) -> Self:
         return cls(name="root", parent=None)
 
-    def find_dirs(self, names: Iterable[str] = tuple()) -> List["TGFSDirectory"]:
+    def find_dirs(self, names: Iterable[str] = tuple()) -> List["DCFSDirectory"]:
         if not names:
             return self.children
         return [child for child in self.children if child.name in frozenset(names)]
 
-    def find_dir(self, name: str) -> "TGFSDirectory":
+    def find_dir(self, name: str) -> "DCFSDirectory":
         dirs = self.find_dirs([name])
         if not dirs:
             raise FileOrDirectoryDoesNotExist(name)
         return dirs[0]
 
-    def find_files(self, names: Iterable[str] = tuple()) -> List[TGFSFileRef]:
+    def find_files(self, names: Iterable[str] = tuple()) -> List[DCFSFileRef]:
         if not names:
             return self.files
         return [file for file in self.files if file.name in frozenset(names)]
 
-    def find_file(self, name: str) -> TGFSFileRef:
+    def find_file(self, name: str) -> DCFSFileRef:
         files = self.find_files([name])
         if not files:
             raise FileOrDirectoryDoesNotExist(name)
         return files[0]
 
-    def create_file_ref(self, name: str, fd_message_id: int) -> TGFSFileRef:
+    def create_file_ref(self, name: str, fd_message_id: int) -> DCFSFileRef:
         if self.find_files([name]):
             raise FileOrDirectoryAlreadyExists(name)
 
-        fr = TGFSFileRef(
+        fr = DCFSFileRef(
             message_id=fd_message_id,
             name=name,
             location=self,
         )
         self.files.append(fr)
+        self._touch_modified()
         return fr
 
-    def delete_file_ref(self, fr: TGFSFileRef) -> None:
+    def delete_file_ref(self, fr: DCFSFileRef) -> None:
         self.files.remove(fr)
+        self._touch_modified()
 
     def delete(self) -> None:
         if self.parent:
             self.parent.children.remove(self)
+            self.parent._touch_modified()
         else:
             # root directory, just clear its contents
             self.children.clear()
             self.files.clear()
+            self._touch_modified()
 
     @property
     def absolute_path(self) -> str:

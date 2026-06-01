@@ -3,11 +3,11 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from dcfs.core.model import (
-    TGFSDirectory,
-    TGFSFileDesc,
-    TGFSFileRef,
-    TGFSFileVersion,
-    TGFSMetadata,
+    DCFSDirectory,
+    DCFSFileDesc,
+    DCFSFileRef,
+    DCFSFileVersion,
+    DCFSMetadata,
 )
 from dcfs.errors import MetadataNotInitialized
 from dcfs.reqres import FileContent, SentFileMessage, UploadableFileMessage
@@ -16,7 +16,7 @@ from dcfs.reqres import FileContent, SentFileMessage, UploadableFileMessage
 @dataclass
 class FDRepositoryResp:
     message_id: int
-    fd: TGFSFileDesc
+    fd: DCFSFileDesc
 
 
 class IFileContentRepository(metaclass=ABCMeta):
@@ -27,7 +27,7 @@ class IFileContentRepository(metaclass=ABCMeta):
     @abstractmethod
     async def get(
         self,
-        fv: TGFSFileVersion,
+        fv: DCFSFileVersion,
         begin: int,
         end: int,
         name: str,
@@ -38,7 +38,7 @@ class IFileContentRepository(metaclass=ABCMeta):
     async def update(self, message_id: int, buffer: bytes, name: str) -> int:
         pass
 
-    async def content_length(self, fv: TGFSFileVersion) -> int:
+    async def content_length(self, fv: DCFSFileVersion) -> int:
         """Logical size of the file as seen by the caller.
 
         Defaults to the stored on-wire size. The encryption decorator overrides
@@ -51,18 +51,18 @@ class IFileContentRepository(metaclass=ABCMeta):
 class IFDRepository(metaclass=ABCMeta):
     @abstractmethod
     async def save(
-        self, fd: TGFSFileDesc, fr: Optional[TGFSFileRef] = None
+        self, fd: DCFSFileDesc, fr: Optional[DCFSFileRef] = None
     ) -> FDRepositoryResp:
         pass
 
     @abstractmethod
-    async def get(self, fr: TGFSFileRef) -> TGFSFileDesc:
+    async def get(self, fr: DCFSFileRef) -> DCFSFileDesc:
         pass
 
 
 class IMetaDataRepository(metaclass=ABCMeta):
     def __init__(self):
-        self.metadata: Optional[TGFSMetadata] = None
+        self.metadata: Optional[DCFSMetadata] = None
 
     async def init(self):
         self.metadata = await self.get()
@@ -72,10 +72,10 @@ class IMetaDataRepository(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    async def get(self) -> TGFSMetadata:
+    async def get(self) -> DCFSMetadata:
         pass
 
-    def root(self) -> TGFSDirectory:
+    def root(self) -> DCFSDirectory:
         if not self.metadata:
             raise MetadataNotInitialized
         return self.metadata.dir

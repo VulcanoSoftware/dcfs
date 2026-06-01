@@ -3,15 +3,15 @@ from typing import Dict, Optional
 from dcfs.config import EncryptionConfig, MetadataConfig, MetadataType
 from dcfs.core.api import DirectoryApi, FileApi, FileDescApi, MessageApi, MetaDataApi
 from dcfs.core.repository.impl import (
-    TGMsgFDRepository,
-    TGMsgFileContentRepository,
-    TGMsgMetadataRepository,
+    DCMsgFDRepository,
+    DCMsgFileContentRepository,
+    DCMsgMetadataRepository,
 )
 from dcfs.core.repository.interface import (
     IFileContentRepository,
     IMetaDataRepository,
 )
-from dcfs.discord import TDLibApi
+from dcfs.discord import DiscordApi
 
 
 class Client:
@@ -34,18 +34,14 @@ class Client:
         cls,
         channel_id: str,
         metadata_cfg: MetadataConfig,
-        tdlib_api: TDLibApi,
-        use_account_api_to_upload: bool = False,
+        discord_api: DiscordApi,
         encryption_cfg: Optional[EncryptionConfig] = None,
     ) -> "Client":
-        channel = await tdlib_api.next_bot.resolve_channel_id(channel_id)
-        message_api = MessageApi(tdlib_api, channel)
+        channel = await discord_api.next_bot.resolve_channel_id(channel_id)
+        message_api = MessageApi(discord_api, channel)
 
-        fc_repo: IFileContentRepository = TGMsgFileContentRepository(
+        fc_repo: IFileContentRepository = DCMsgFileContentRepository(
             message_api,
-            use_account_api_to_upload
-            and tdlib_api.account is not None
-            and (await tdlib_api.account.get_me()).is_premium,
         )
 
         # Wrap the file-content repository in an encryption decorator if
@@ -63,16 +59,16 @@ class Client:
                 chunk_size=encryption_cfg.chunk_size,
             )
 
-        fd_repo = TGMsgFDRepository(message_api)
+        fd_repo = DCMsgFDRepository(message_api)
 
         if metadata_cfg.type == MetadataType.PINNED_MESSAGE:
-            metadata_repo: IMetaDataRepository = TGMsgMetadataRepository(
+            metadata_repo: IMetaDataRepository = DCMsgMetadataRepository(
                 message_api, fc_repo
             )
         else:
             if (github_repo_config := metadata_cfg.github_repo) is None:
                 raise ValueError(
-                    "configuration tgfs -> metadata -> github is required."
+                    "configuration dcfs -> metadata -> github is required."
                 )
             from dcfs.core.repository.impl.metadata.github_repo import (
                 GithubRepoMetadataRepository,
@@ -85,8 +81,8 @@ class Client:
         metadata_api = MetaDataApi(metadata_repo)
         await metadata_api.init()
 
-        file_api = FileApi(metadata_api, fd_api)
-        dir_api = DirectoryApi(metadata_api)
+        file_api = FileApi(metadata_api, fd_api, message_api)
+        dir_api = DirectoryApi(metadata_api, file_api, message_api)
 
         return cls(
             name=metadata_cfg.name,

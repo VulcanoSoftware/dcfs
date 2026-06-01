@@ -1,4 +1,4 @@
-"""Key derivation for TGFS encryption.
+"""Key derivation for DCFS encryption.
 
 The key hierarchy is:
 
@@ -11,7 +11,7 @@ Why two stages?
   * HKDF is fast and gives us a fresh, independent per-file key, so that
     leaking one file's key cannot be used to decrypt other files.
 
-The master salt is stored in the TGFS config (or a sibling file). It is not
+The master salt is stored in the DCFS config (or a sibling file). It is not
 secret -- losing it just means re-deriving the master key with the same salt
 is impossible, so the salt should be backed up alongside the metadata.
 """
@@ -39,7 +39,7 @@ ARGON2_HASH_LEN = 32  # bytes -> matches AES-256 key size
 
 # HKDF info string. Embedding a version tag here means we can rotate the
 # derivation scheme by bumping the info string without changing the salt.
-_HKDF_INFO = b"tgfs-file-key-v1"
+_HKDF_INFO = b"dcfs-file-key-v1"
 
 # Size of the master salt. 16 bytes is the Argon2 recommendation.
 MASTER_SALT_SIZE = 16
@@ -128,8 +128,8 @@ def derive_file_key(master_key: bytes, file_salt: bytes) -> bytes:
 def fingerprint(master_key: bytes) -> str:
     """Return a short, non-secret fingerprint of the master key.
 
-    Useful for logging which key a TGFS instance is operating under without
+    Useful for logging which key a DCFS instance is operating under without
     revealing the key itself. Returns the first 8 hex chars of SHA-256 over
     a domain-separated digest.
     """
-    return sha256(b"tgfs-master-fingerprint\x00" + master_key).hexdigest()[:8]
+    return sha256(b"dcfs-master-fingerprint\x00" + master_key).hexdigest()[:8]

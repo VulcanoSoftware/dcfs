@@ -7,7 +7,7 @@ from .path import (
     InvalidPath,
 )
 from .discord import FileSizeTooLarge, MessageNotFound
-from .tgfs import (
+from .dcfs import (
     DuplicatedChannelIdOrName,
     LoginFailed,
     MetadataNotFound,

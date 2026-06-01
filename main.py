@@ -18,27 +18,25 @@ from uvicorn.server import Server
 from dcfs.app import create_app
 from dcfs.config import Config, get_config
 from dcfs.core import Client, Clients
-from dcfs.discord import DiscordAPI, TDLibApi, login
+from dcfs.discord import DiscordApi
+from dcfs.discord.impl.discord_bot import DiscordBotAPI, login_as_bots
 
 
 async def create_clients(config: Config) -> Clients:
-    discord_bots = await login(config)
-
-    tdlib_api = TDLibApi(
-        account=None,  # Discord has no separate "account" concept
-        bots=discord_bots,
+    discord_bots = await login_as_bots(config)
+    discord_api = DiscordApi(
+        bots=[DiscordBotAPI(bot, config.discord.bot_token) for bot in discord_bots],
     )
 
     clients: Clients = {}
 
     for channel_id in config.discord.private_file_channel:
-        metadata_cfg = config.tgfs.metadata[channel_id]
+        metadata_cfg = config.dcfs.metadata[channel_id]
         clients[metadata_cfg.name] = await Client.create(
             channel_id,
             metadata_cfg,
-            tdlib_api,
-            use_account_api_to_upload=False,
-            encryption_cfg=config.tgfs.encryption,
+            discord_api,
+            encryption_cfg=config.dcfs.encryption,
         )
     return clients
 
@@ -65,7 +63,7 @@ async def main():
     clients = await create_clients(config)
 
     app = create_app(clients, config)
-    await run_server(app, config.tgfs.server.host, config.tgfs.server.port, "DCFS")
+    await run_server(app, config.dcfs.server.host, config.dcfs.server.port, "DCFS")
 
 
 if __name__ == "__main__":

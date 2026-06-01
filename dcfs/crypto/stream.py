@@ -1,5 +1,5 @@
 """Streaming wrapper that turns a plaintext ``UploadableFileMessage`` into
-a ciphertext ``UploadableFileMessage`` consumable by the existing TGFS
+a ciphertext ``UploadableFileMessage`` consumable by the existing DCFS
 uploader.
 
 The wrapper exposes the same ``read(length)`` interface as the underlying
@@ -8,12 +8,12 @@ plaintext message but emits encrypted bytes:
     [file_header (60 B)] [chunk_0] [chunk_1] ... [chunk_N]
 
 where each ``chunk_i`` is ``nonce || ciphertext || tag``. The upload size
-declared to Telegram is computed up-front via
+declared to Discord is computed up-front via
 :func:`ciphertext_size_for_plaintext` so the FileUploader can plan its parts
 exactly as it does for plaintext files.
 
 The wrapper does its own internal chunking and buffering -- the FileUploader
-reads in ~512 KiB Telegram-chunks while we encrypt in (typically) 64 KiB
+reads in ~512 KiB Discord-chunks while we encrypt in (typically) 64 KiB
 crypto-chunks, so we keep a small ``_pending`` buffer to span the two.
 """
 
@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import List, Optional
 
 from dcfs.crypto.cipher import (
     ChunkedAESGCM,
@@ -29,7 +28,6 @@ from dcfs.crypto.cipher import (
 )
 from dcfs.crypto.header import HEADER_SIZE, FileHeader
 from dcfs.reqres import FileTags, UploadableFileMessage
-from dcfs.tasks.integrations import TaskTracker
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +39,7 @@ class EncryptingFileMessage(UploadableFileMessage):
     The wrapped ``inner`` message is read on demand; we never load the whole
     plaintext into memory. ``size`` on this object reflects the *ciphertext*
     size including the header, which is what the uploader uses to compute
-    Telegram parts and progress.
+    Discord parts and progress.
     """
 
     inner: UploadableFileMessage = field(init=False)
@@ -75,7 +73,8 @@ class EncryptingFileMessage(UploadableFileMessage):
             chunk_size=header.chunk_size,
         )
         header_bytes = header.serialize(file_key)
-        assert len(header_bytes) == HEADER_SIZE
+        if len(header_bytes) != HEADER_SIZE:
+            raise RuntimeError("serialized header has unexpected size")
 
         plaintext_size = inner.get_size()
         ciphertext_size = HEADER_SIZE + ciphertext_size_for_plaintext(

@@ -2,7 +2,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Self, TypedDict
+from typing import Dict, List, Literal, Optional, Self, TypedDict
 
 import yaml
 
@@ -10,27 +10,6 @@ logger = logging.getLogger(__name__)
 
 DATA_DIR = os.environ.get("DCFS_DATA_DIR", os.path.expanduser("~/.dcfs"))
 CONFIG_FILE = os.environ.get("DCFS_CONFIG_FILE", "config.yaml")
-
-
-@dataclass
-class WebDAVConfig:
-    host: str
-    port: int
-    path: str
-
-    @classmethod
-    def from_dict(cls, data: dict) -> Self:
-        return cls(host=data["host"], port=data["port"], path=data["path"])
-
-
-@dataclass
-class ManagerConfig:
-    host: str
-    port: int
-
-    @classmethod
-    def from_dict(cls, data: dict) -> Self:
-        return cls(host=data["host"], port=data["port"])
 
 
 @dataclass
@@ -67,17 +46,7 @@ class JWTConfig:
 
 @dataclass
 class EncryptionConfig:
-    """Optional at-rest encryption settings.
-
-    ``passphrase_env`` / ``passphrase`` / ``passphrase_file`` are mutually
-    exclusive; the loader picks the first one that is set. A file containing
-    the passphrase is the recommended option for systemd deployments (pair
-    it with a ``LoadCredential=`` unit directive).
-
-    ``master_salt_file`` stores the 16-byte master salt produced on the
-    very first run. Back this up alongside your TGFS metadata -- without it
-    the master key cannot be re-derived even with the correct passphrase.
-    """
+    """Optional at-rest encryption settings."""
 
     enabled: bool
     passphrase: Optional[str]
@@ -113,12 +82,6 @@ class EncryptionConfig:
         )
 
     def resolve_passphrase(self) -> str:
-        """Return the passphrase from whichever source is configured.
-
-        Raises :class:`ValueError` if encryption is enabled but no source
-        was configured. Stripping a trailing newline makes the
-        ``passphrase_file`` flow forgiving of editors that always add one.
-        """
         if self.passphrase_env:
             value = os.environ.get(self.passphrase_env)
             if value is None:
@@ -206,7 +169,7 @@ class ServerConfig:
 
 
 @dataclass
-class TGFSConfig:
+class DCFSConfig:
     users: dict[str, UserConfig]
     download: DownloadConfig
     jwt: JWTConfig
@@ -243,44 +206,33 @@ def expand_path(path: str) -> str:
 
 @dataclass
 class DiscordConfig:
-    """Configuration for the Discord storage backend.
-
-    bot_tokens: one or more Discord bot tokens. Multiple tokens enable
-                round-robin distribution (same pattern as the original
-                multi-bot Telegram setup).
-    private_file_channel: list of Discord channel IDs used as storage.
-    max_file_size_mb: maximum size per attachment. Discord free tier allows
-                      25 MB; Nitro / boosted servers allow up to 500 MB.
-    """
-
-    bot_tokens: List[str]
+    bot_token: str
+    guild_id: int
     private_file_channel: List[str]
-    max_file_size_mb: int
+    delete_messages_on_remove: bool
 
     @classmethod
     def from_dict(cls, data: dict) -> "DiscordConfig":
-        tokens = data.get("bot_tokens", [])
-        if not tokens and "bot_token" in data:
-            tokens = [data["bot_token"]]
         return cls(
-            bot_tokens=tokens,
-            private_file_channel=data["private_file_channel"]
-            if isinstance(data["private_file_channel"], list)
-            else [data["private_file_channel"]],
-            max_file_size_mb=int(data.get("max_file_size_mb", 25)),
+            bot_token=data["bot_token"],
+            guild_id=int(data["guild_id"]) if data.get("guild_id") else 0,
+            private_file_channel=data["private_file_channel"],
+            delete_messages_on_remove=bool(
+                data.get("delete_messages_on_remove", False)
+            ),
         )
 
 
 @dataclass
 class Config:
     discord: DiscordConfig
-    tgfs: TGFSConfig
+    dcfs: DCFSConfig
 
     @classmethod
     def from_dict(cls, data: dict) -> "Config":
         return cls(
             discord=DiscordConfig.from_dict(data["discord"]),
-            tgfs=TGFSConfig.from_dict(data["tgfs"]),
+            dcfs=DCFSConfig.from_dict(data["dcfs"]),
         )
 
 

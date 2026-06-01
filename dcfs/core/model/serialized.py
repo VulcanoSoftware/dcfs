@@ -1,7 +1,7 @@
 from typing import List, Literal, TypedDict
 
 
-class TGFSFileVersionSerialized(TypedDict, total=False):
+class DCFSFileVersionSerialized(TypedDict, total=False):
     type: Literal["FV"]
     id: str
     updatedAt: int
@@ -10,20 +10,22 @@ class TGFSFileVersionSerialized(TypedDict, total=False):
     size: int
 
 
-class TGFSFileDescSerialized(TypedDict, total=False):
+class DCFSFileDescSerialized(TypedDict, total=False):
     type: Literal["F"]
     name: str
-    versions: List[TGFSFileVersionSerialized]
+    versions: List[DCFSFileVersionSerialized]
 
 
-class TGFSFileRefSerialized(TypedDict, total=False):
+class DCFSFileRefSerialized(TypedDict, total=False):
     type: Literal["FR"]
     messageId: int
     name: str
 
 
-class TGFSDirectorySerialized(TypedDict, total=False):
+class DCFSDirectorySerialized(TypedDict, total=False):
     type: Literal["D"]
     name: str
-    children: List["TGFSDirectorySerialized"]
-    files: List[TGFSFileRefSerialized]
+    createdAt: int
+    modifiedAt: int
+    children: List["DCFSDirectorySerialized"]
+    files: List[DCFSFileRefSerialized]

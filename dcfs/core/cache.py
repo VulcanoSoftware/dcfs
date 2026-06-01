@@ -1,9 +1,9 @@
 from collections import defaultdict
 from typing import Dict, List, Optional, Union
 
-from dcfs.core.model import TGFSDirectory, TGFSFileRef
+from dcfs.core.model import DCFSDirectory, DCFSFileRef
 
-CacheItem = Union[TGFSFileRef, TGFSDirectory]
+CacheItem = Union[DCFSFileRef, DCFSDirectory]
 
 
 class FSCache:

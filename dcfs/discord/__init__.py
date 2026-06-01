@@ -1,9 +1,9 @@
-from .impl import DiscordAPI, login
-from .interface import ITDLibClient, TDLibApi
+from .interface import DiscordApi, IDiscordClient
+from .impl.discord_bot import DiscordBotAPI, login_as_bot
 
 __all__ = [
-    "TDLibApi",
-    "ITDLibClient",
-    "DiscordAPI",
-    "login",
+    "DiscordApi",
+    "IDiscordClient",
+    "DiscordBotAPI",
+    "login_as_bot",
 ]

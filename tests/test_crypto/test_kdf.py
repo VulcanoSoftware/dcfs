@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`tgfs.crypto.kdf`.
+"""Unit tests for :mod:`dcfs.crypto.kdf`.
 
 Argon2id is intentionally slow, so we use the minimum-acceptable cost
 parameters for the master-key tests. The cipher and HKDF paths are tested

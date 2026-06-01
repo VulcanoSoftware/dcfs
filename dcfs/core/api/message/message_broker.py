@@ -4,13 +4,12 @@ from dataclasses import dataclass
 from functools import reduce
 from typing import List, Optional, Set
 
-from dcfs.config import get_config
 from dcfs.reqres import GetMessagesReq, GetMessagesResp, MessageResp
-from dcfs.discord.interface import TDLibApi
+from dcfs.discord.interface import DiscordApi
 from dcfs.utils.message_cache import channel_cache
 
 DELAY = 0.5
-BOTS_COUNT = len(get_config().discord.bot_tokens)
+BOTS_COUNT = 1  # Discord uses a single bot
 
 
 logger = logging.getLogger(__name__)
@@ -23,8 +22,8 @@ class Request:
 
 
 class MessageBroker:
-    def __init__(self, tdlib: TDLibApi, private_file_channel: int):
-        self.tdlib = tdlib
+    def __init__(self, discord_api: DiscordApi, private_file_channel: int):
+        self.discord_api = discord_api
         self.__requests: List[Request] = []
         self.__lock = asyncio.Lock()
         self.__task: Optional[asyncio.Task] = None
@@ -56,7 +55,7 @@ class MessageBroker:
         ids: Set[int] = reduce(lambda full, req: full.union(req.ids), requests, set())
 
         e: Optional[Exception] = None
-        bot = self.tdlib.next_bot
+        bot = self.discord_api.next_bot
         for i in range(BOTS_COUNT):
             try:
 
@@ -82,14 +81,14 @@ class MessageBroker:
                 e = ex
                 me = await bot.get_me()
                 logger.error(
-                    f"{me.name} failed to get messages: {ex}, retrying with next bot..."
+                    f"{me.name} failed to get messages: {ex}, retrying..."
                 )
-                bot = self.tdlib.next_bot
+                bot = self.discord_api.next_bot
         if not e:
             return
 
         logger.error(
-            "All bots failed to get messages, propagating exception to all requests."
+            "Bot failed to get messages, propagating exception to all requests."
         )
         for request in requests:
             if e and not request.future.done():

@@ -11,7 +11,7 @@ class DiscordError(BusinessError, metaclass=ABCMeta):
 
 class FileSizeTooLarge(DiscordError):
     def __init__(self, size: int):
-        message = f"File size {size} exceeds Telegram's limit."
+        message = f"File size {size} exceeds Discord's limit."
         super().__init__(
             message=message,
             code=ErrorCode.FILE_SIZE_TOO_LARGE,

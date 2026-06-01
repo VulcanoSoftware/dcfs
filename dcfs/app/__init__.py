@@ -46,7 +46,7 @@ def create_app(clients: Clients, config: Config) -> FastAPI:
     def UNAUTHORIZED(detail: str) -> Response:
         return Response(
             status_code=HTTPStatus.UNAUTHORIZED,
-            headers={"WWW-Authenticate": 'Basic realm="TGFS", Bearer realm="TGFS"'},
+            headers={"WWW-Authenticate": 'Basic realm="DCFS", Bearer realm="DCFS"'},
             content=detail,
         )
 

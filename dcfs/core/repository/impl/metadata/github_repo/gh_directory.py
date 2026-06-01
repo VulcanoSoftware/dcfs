@@ -5,7 +5,7 @@ from typing import Optional
 from github import Github
 from github.Repository import Repository
 
-from dcfs.core.model import TGFSDirectory, TGFSFileRef
+from dcfs.core.model import DCFSDirectory, DCFSFileRef
 
 logger = logging.getLogger(__name__)
 
@@ -18,14 +18,14 @@ class GithubConfig:
     commit: str
 
 
-class GithubDirectory(TGFSDirectory):
+class GithubDirectory(DCFSDirectory):
     def __init__(
         self,
         ghc: GithubConfig,
         name: str,
-        parent: Optional[TGFSDirectory],
-        children: Optional[list[TGFSDirectory]] = None,
-        files: Optional[list[TGFSFileRef]] = None,
+        parent: Optional[DCFSDirectory],
+        children: Optional[list[DCFSDirectory]] = None,
+        files: Optional[list[DCFSFileRef]] = None,
     ):
         super().__init__(name, parent, children or [], files or [])
         self._ghc = ghc
@@ -54,7 +54,7 @@ class GithubDirectory(TGFSDirectory):
         return res
 
     def create_dir(
-        self, name: str, dir_to_copy: Optional[TGFSDirectory] = None
+        self, name: str, dir_to_copy: Optional[DCFSDirectory] = None
     ) -> "GithubDirectory":
         child = super().create_dir(name, dir_to_copy)
 
@@ -94,7 +94,7 @@ class GithubDirectory(TGFSDirectory):
             self._delete_github_directory()
         super().delete()
 
-    def create_file_ref(self, name: str, file_message_id: int) -> TGFSFileRef:
+    def create_file_ref(self, name: str, file_message_id: int) -> DCFSFileRef:
         file_ref = super().create_file_ref(name, file_message_id)
 
         # Create file reference in GitHub
@@ -118,7 +118,7 @@ class GithubDirectory(TGFSDirectory):
 
         return file_ref
 
-    def delete_file_ref(self, fr: TGFSFileRef) -> None:
+    def delete_file_ref(self, fr: DCFSFileRef) -> None:
         # Remove file reference from GitHub
         file_path = self.join_path(self._github_path, f"{fr.name}.{fr.message_id}")
         try:

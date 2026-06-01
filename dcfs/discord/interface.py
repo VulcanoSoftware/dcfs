@@ -4,6 +4,7 @@ from itertools import cycle
 from typing import Optional, Sequence
 
 from dcfs.reqres import (
+    DeleteMessagesReq,
     DownloadFileReq,
     DownloadFileResp,
     EditMessageMediaReq,
@@ -15,9 +16,6 @@ from dcfs.reqres import (
     GetPinnedMessageReq,
     Message,
     PinMessageReq,
-    SaveBigFilePartReq,
-    SaveFilePartReq,
-    SaveFilePartResp,
     SearchMessageReq,
     SendFileReq,
     SendMessageResp,
@@ -25,7 +23,7 @@ from dcfs.reqres import (
 )
 
 
-class ITDLibClient(metaclass=ABCMeta):
+class IDiscordClient(metaclass=ABCMeta):
     def __init__(self):
         self._me: Optional[GetMeResp] = None
 
@@ -56,19 +54,7 @@ class ITDLibClient(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    async def save_big_file_part(self, req: SaveBigFilePartReq) -> SaveFilePartResp:
-        pass
-
-    @abstractmethod
-    async def save_file_part(self, req: SaveFilePartReq) -> SaveFilePartResp:
-        pass
-
-    @abstractmethod
-    async def send_big_file(self, req: SendFileReq) -> SendMessageResp:
-        pass
-
-    @abstractmethod
-    async def send_small_file(self, req: SendFileReq) -> SendMessageResp:
+    async def send_file(self, req: SendFileReq) -> SendMessageResp:
         pass
 
     @abstractmethod
@@ -77,6 +63,10 @@ class ITDLibClient(metaclass=ABCMeta):
 
     @abstractmethod
     async def download_file(self, req: DownloadFileReq) -> DownloadFileResp:
+        pass
+
+    @abstractmethod
+    async def delete_messages(self, req: DeleteMessagesReq) -> None:
         pass
 
     @abstractmethod
@@ -94,17 +84,17 @@ class ITDLibClient(metaclass=ABCMeta):
 
 
 @dataclass
-class TDLibApi:
-    bots: Sequence[ITDLibClient]
-    account: Optional[ITDLibClient] = None
+class DiscordApi:
+    bots: Sequence[IDiscordClient]
+    account: Optional[IDiscordClient] = None
 
     def __post_init__(self):
         self.__bots_cycle = cycle(self.bots)
 
     @property
-    def bot(self) -> ITDLibClient:
+    def bot(self) -> IDiscordClient:
         return self.bots[0]
 
     @property
-    def next_bot(self) -> ITDLibClient:
+    def next_bot(self) -> IDiscordClient:
         return next(self.__bots_cycle)

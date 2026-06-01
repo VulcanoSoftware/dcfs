@@ -1,7 +1,7 @@
-"""Integration tests for :mod:`tgfs.crypto.stream` and
-:mod:`tgfs.crypto.repository`.
+"""Integration tests for :mod:`dcfs.crypto.stream` and
+:mod:`dcfs.crypto.repository`.
 
-These tests deliberately do not touch Telegram. They drive the
+These tests deliberately do not touch Discord. They drive the
 encryption/decryption pipeline with a fake :class:`IFileContentRepository`
 that stores ciphertext in memory, which is sufficient to validate:
 
@@ -36,7 +36,7 @@ from dcfs.reqres import (
 
 @dataclass
 class _FakeFileVersion:
-    """Stand-in for ``TGFSFileVersion`` good enough for the repository.
+    """Stand-in for ``DCFSFileVersion`` good enough for the repository.
 
     Only ``id``, ``size``, ``message_ids``, and ``part_sizes`` are consulted.
     """
@@ -52,7 +52,7 @@ class _InMemoryRepo(IFileContentRepository):
 
     A "part" of the file is one message id. To make range tests interesting,
     we always store the file as a single part -- this matches small files
-    in tgfs (anything < 2 GB) and exercises the chunk-level range logic in
+    in DCFS (anything < 2 GB) and exercises the chunk-level range logic in
     the encrypting wrapper.
     """
 
@@ -94,7 +94,7 @@ class _InMemoryRepo(IFileContentRepository):
     ) -> FileContent:
         # Single-part files only in this fake, so use the first message id.
         # ``end`` follows the codebase-wide INCLUSIVE convention (matches the
-        # real Telegram ``download_file`` API: bytes_to_read = end - begin + 1).
+        # real Discord ``download_file`` API: bytes_to_read = end - begin + 1).
         ciphertext = self._files[fv.message_ids[0]]
         if end < 0:
             end = len(ciphertext) - 1
@@ -329,7 +329,7 @@ async def test_read_plaintext_last_byte() -> None:
 async def test_read_plaintext_shorter_than_header() -> None:
     """A 10-byte legacy file must read back as plaintext, not error out."""
     repo = _make_repo(chunk_size=4096)
-    plaintext = b"hello tgfs"
+    plaintext = b"hello DCFS"
     fv = _seed_plaintext(repo, plaintext)
     out = await _collect(await repo.get(fv, 0, -1, "tiny.txt"))
     assert out == plaintext
@@ -356,7 +356,7 @@ async def test_overwrite_plaintext_produces_ciphertext() -> None:
     new_fv = await _save_and_get_fv(repo, new_plaintext)
     inner: _InMemoryRepo = repo._inner  # type: ignore[assignment]
     stored = inner._files[new_fv.message_ids[0]]
-    assert stored[:4] == b"TGFS", "new write must start with TGFS magic"
+    assert stored[:4] == b"DCFS", "new write must start with DCFS magic"
     assert stored != new_plaintext
 
     # And it round-trips through the wrapper.
@@ -364,8 +364,8 @@ async def test_overwrite_plaintext_produces_ciphertext() -> None:
     assert out == new_plaintext
 
 
-async def test_plaintext_with_accidental_tgfs_prefix_fails_loudly() -> None:
-    """A plaintext file that happens to start with ``TGFS`` and looks like a
+async def test_plaintext_with_accidental_DCFS_prefix_fails_loudly() -> None:
+    """A plaintext file that happens to start with ``DCFS`` and looks like a
     header parse target must NOT be silently treated as plaintext: the MAC
     will fail and we must surface the error so a real key mismatch is never
     masked.
@@ -375,17 +375,17 @@ async def test_plaintext_with_accidental_tgfs_prefix_fails_loudly() -> None:
     # parse OK, but the MAC is garbage. parse() succeeds; verify() raises.
     import struct as _struct
 
-    body = _struct.pack(">4sHHI32s", b"TGFS", 1, 1, 4096, b"\x00" * 32)
+    body = _struct.pack(">4sHHI32s", b"DCFS", 1, 1, 4096, b"\x00" * 32)
     fake = body + b"\xff" * 16  # wrong MAC
     fv = _seed_plaintext(repo, fake + b"some more data")
     with pytest.raises(InvalidHeaderError):
         await _collect(await repo.get(fv, 0, -1, "ambiguous.bin"))
 
 
-async def test_plaintext_with_tgfs_prefix_short_fails_loudly() -> None:
+async def test_plaintext_with_DCFS_prefix_short_fails_loudly() -> None:
     """Magic match but truncated below HEADER_SIZE: surface as error."""
     repo = _make_repo(chunk_size=4096)
-    fv = _seed_plaintext(repo, b"TGFS" + b"\x00" * 10)  # 14 bytes total
+    fv = _seed_plaintext(repo, b"DCFS" + b"\x00" * 10)  # 14 bytes total
     with pytest.raises(InvalidHeaderError):
         await _collect(await repo.get(fv, 0, -1, "short.bin"))
 

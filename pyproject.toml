@@ -2,14 +2,14 @@
 name = "dcfs"
 version = "0.1.0"
 package-mode = false
-description = "Discord-backed filesystem (WebDAV) — a drop-in replacement for tgfs using Discord as the storage backend"
+description = "Discord becomes a WebDAV server."
 authors = [
-    {name = "WheatCarrier", email = "wheatcarrier@gmail.com"}
+    {name = "WheatCarrier",email = "wheatcarrier@gmail.com"}
 ]
 readme = "README.md"
 requires-python = ">=3.13,<4.0"
 dependencies = [
-    "aiohttp (>=3.9.0,<4.0.0)",
+    "discord.py (>=2.5.0,<3.0.0)",
     "pyrate-limiter (>=3.9.0,<4.0.0)",
     "uvicorn (>=0.35.0,<0.36.0)",
     "fastapi (>=0.124.0)",
@@ -20,6 +20,7 @@ dependencies = [
     "pyjwt (>=2.10.1,<3.0.0)",
     "pygithub (>=2.8.1,<3.0.0)",
     "rsa (==4.9.1)",
+    "aiohttp (>=3.10.0,<4.0.0)",
     "cryptography (>=42.0.0,<46.0.0)",
     "argon2-cffi (>=23.1.0,<26.0.0)",
     "uvloop (>=0.21.0,<0.22.0) ; platform_system != \"Windows\"",

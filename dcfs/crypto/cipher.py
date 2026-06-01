@@ -132,7 +132,7 @@ def ciphertext_size_for_plaintext(plaintext_size: int, chunk_size: int) -> int:
 
     This does NOT include the file header -- :data:`FileHeader.HEADER_SIZE`
     must be added separately. Used by the upload wrapper to declare the
-    correct file size up-front to Telegram.
+    correct file size up-front to Discord.
     """
     if plaintext_size < 0:
         raise ValueError(f"plaintext size negative: {plaintext_size}")
@@ -153,7 +153,7 @@ def plaintext_offset_to_chunk(offset: int, chunk_size: int) -> tuple[int, int]:
 def chunk_to_ciphertext_offset(chunk_index: int, chunk_size: int) -> int:
     """Return the ciphertext byte offset where ``chunk_index`` begins.
 
-    The caller must add :data:`tgfs.crypto.header.HEADER_SIZE` if the
+    The caller must add :data:`dcfs.crypto.header.HEADER_SIZE` if the
     on-wire stream is being addressed (the header is prepended once).
     """
     if chunk_index < 0:

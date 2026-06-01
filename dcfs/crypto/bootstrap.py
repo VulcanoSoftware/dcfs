@@ -1,4 +1,4 @@
-"""Bootstrap helpers that wire :mod:`tgfs.crypto` into the runtime config.
+"""Bootstrap helpers that wire `:mod:`dcfs.crypto` into the runtime config.
 
 This module is intentionally tiny -- it lives outside the ``crypto`` package
 so that pulling it in does not force everyone to take the Argon2 / OpenSSL
@@ -21,7 +21,7 @@ def _load_or_create_master_salt(path: str) -> bytes:
     """Load the master salt from ``path`` or create it on first run.
 
     The salt is *not* secret. We persist it with mode 0600 anyway, just to
-    keep it neatly grouped with other TGFS state.
+    keep it neatly grouped with other DCFS state.
     """
     if os.path.exists(path):
         with open(path, "rb") as fh:

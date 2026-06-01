@@ -8,7 +8,7 @@ from dcfs.reqres import SentFileMessage
 from dcfs.utils.time import FIRST_DAY_OF_EPOCH, ts
 
 from .common import validate_name
-from .serialized import TGFSFileDescSerialized, TGFSFileVersionSerialized
+from .serialized import DCFSFileDescSerialized, DCFSFileVersionSerialized
 
 EMPTY_FILE_MESSAGE = -1
 INVALID_FILE_SIZE = -1
@@ -16,7 +16,7 @@ INVALID_VERSION_ID = ""
 
 
 @dataclass
-class TGFSFileVersion:
+class DCFSFileVersion:
     id: str
     updated_at: datetime.datetime
     _size: int = INVALID_FILE_SIZE  # total size
@@ -45,16 +45,16 @@ class TGFSFileVersion:
         )
 
     @staticmethod
-    def empty() -> "TGFSFileVersion":
-        return TGFSFileVersion(
+    def empty() -> "DCFSFileVersion":
+        return DCFSFileVersion(
             id=str(uuid()),
             updated_at=datetime.datetime.now(),
             message_ids=[],
         )
 
     @staticmethod
-    def from_sent_file_message(*messages: SentFileMessage) -> "TGFSFileVersion":
-        return TGFSFileVersion(
+    def from_sent_file_message(*messages: SentFileMessage) -> "DCFSFileVersion":
+        return DCFSFileVersion(
             id=str(uuid()),
             updated_at=datetime.datetime.now(),
             message_ids=[msg.message_id for msg in messages],
@@ -62,7 +62,7 @@ class TGFSFileVersion:
         )
 
     @staticmethod
-    def from_dict(data: TGFSFileVersionSerialized) -> "TGFSFileVersion":
+    def from_dict(data: DCFSFileVersionSerialized) -> "DCFSFileVersion":
         if (updated_at_ts := data.get("updatedAt", 0)) > 0:
             updated_at = datetime.datetime.fromtimestamp(updated_at_ts / 1000)
         else:
@@ -73,7 +73,7 @@ class TGFSFileVersion:
                 message_ids = [message_id]
             else:
                 message_ids = []
-        return TGFSFileVersion(
+        return DCFSFileVersion(
             id=data["id"],
             updated_at=updated_at,
             message_ids=message_ids,
@@ -90,11 +90,11 @@ class TGFSFileVersion:
 
 
 @dataclass
-class TGFSFileDesc:
+class DCFSFileDesc:
     name: str
     latest_version_id: str = ""
     created_at: datetime.datetime = field(default_factory=datetime.datetime.now)
-    versions: dict[str, TGFSFileVersion] = field(default_factory=dict)
+    versions: dict[str, DCFSFileVersion] = field(default_factory=dict)
 
     @property
     def updated_at_timestamp(self) -> int:
@@ -112,15 +112,15 @@ class TGFSFileDesc:
         )
 
     @staticmethod
-    def from_dict(data: TGFSFileDescSerialized, name: str) -> "TGFSFileDesc":
-        versions = {v["id"]: TGFSFileVersion.from_dict(v) for v in data["versions"]}
+    def from_dict(data: DCFSFileDescSerialized, name: str) -> "DCFSFileDesc":
+        versions = {v["id"]: DCFSFileVersion.from_dict(v) for v in data["versions"]}
         if versions:
             latest_version_id = max(
                 versions, key=lambda k: versions[k].updated_at_timestamp
             )
         else:
             latest_version_id = INVALID_VERSION_ID
-        return TGFSFileDesc(
+        return DCFSFileDesc(
             name=name,
             latest_version_id=latest_version_id,
             versions=versions,
@@ -130,24 +130,24 @@ class TGFSFileDesc:
         return json.dumps(self.to_dict(), ensure_ascii=False)
 
     @staticmethod
-    def empty(name: str) -> "TGFSFileDesc":
-        return TGFSFileDesc(
+    def empty(name: str) -> "DCFSFileDesc":
+        return DCFSFileDesc(
             name=name,
             latest_version_id="",
             versions={},
         )
 
-    def get_latest_version(self) -> TGFSFileVersion:
+    def get_latest_version(self) -> DCFSFileVersion:
         return (
             self.versions[self.latest_version_id]
             if self.latest_version_id
-            else TGFSFileVersion.empty()
+            else DCFSFileVersion.empty()
         )
 
-    def get_version(self, version_id: str) -> TGFSFileVersion:
+    def get_version(self, version_id: str) -> DCFSFileVersion:
         return self.versions[version_id]
 
-    def add_version(self, version: TGFSFileVersion) -> None:
+    def add_version(self, version: DCFSFileVersion) -> None:
         self.versions[version.id] = version
         if (
             self.latest_version_id == INVALID_VERSION_ID
@@ -158,22 +158,22 @@ class TGFSFileDesc:
             self.created_at = version.updated_at
 
     def add_empty_version(self) -> None:
-        version = TGFSFileVersion.empty()
+        version = DCFSFileVersion.empty()
         self.add_version(version)
 
     def add_version_from_sent_file_message(self, *msg: SentFileMessage):
-        version = TGFSFileVersion.from_sent_file_message(*msg)
+        version = DCFSFileVersion.from_sent_file_message(*msg)
         self.add_version(version)
         return self.versions[self.latest_version_id]
 
-    def update_version(self, version_id: str, version: TGFSFileVersion):
+    def update_version(self, version_id: str, version: DCFSFileVersion):
         self.versions[version_id] = version
 
     def get_versions(
         self, sort: bool = False, exclude_invalid: bool = False
-    ) -> List[TGFSFileVersion]:
+    ) -> List[DCFSFileVersion]:
         if not sort:
-            res: Iterable[TGFSFileVersion] = self.versions.values()
+            res: Iterable[DCFSFileVersion] = self.versions.values()
         else:
             res = sorted(
                 self.versions.values(),

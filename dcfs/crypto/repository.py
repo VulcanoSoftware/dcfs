@@ -5,14 +5,14 @@ The wrapper intercepts the two relevant operations:
 * :meth:`save` -- wraps the incoming plaintext ``UploadableFileMessage`` in
   an :class:`EncryptingFileMessage` and delegates to the inner repository.
   The encrypted ciphertext (header + chunks) is what actually lands in
-  Telegram. The returned ``SentFileMessage`` list reflects ciphertext part
-  sizes, which is what TGFS persists in its metadata.
+  Discord. The returned ``SentFileMessage`` list reflects ciphertext part
+  sizes, which is what DCFS persists in its metadata.
 
-* :meth:`get` -- detects per file whether the stored content carries a TGFS
+* :meth:`get` -- detects per file whether the stored content carries a DCFS
   encryption header. Encrypted files are decrypted on-the-fly (the on-disk
   header is read once per file and cached); legacy plaintext files (no
-  ``"TGFS"`` magic at byte 0) are passed straight through the wrapper, so a
-  TGFS deployment that turns encryption on later can still read everything
+  ``"DCFS"`` magic at byte 0) are passed straight through the wrapper, so a
+  DCFS deployment that turns encryption on later can still read everything
   it wrote before. New writes always go through the encryption path while
   the wrapper is installed, so overwriting a plaintext file produces
   ciphertext.
@@ -41,8 +41,8 @@ from dcfs.reqres import FileContent, SentFileMessage, UploadableFileMessage
 
 if TYPE_CHECKING:
     # Only used for type hints; pulling the runtime symbol would drag in
-    # discord.py via dcfs.core.api.
-    from dcfs.core.model import TGFSFileVersion
+    # discord via dcfs.core.api.
+    from dcfs.core.model import DCFSFileVersion
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ class _HeaderCache:
     A cached value of ``None`` marks a legacy *plaintext* file -- one that
     predates encryption and therefore must be passed through the inner repo
     unchanged. Caching that decision is important: without it, every range
-    request would trigger a fresh header probe against Telegram.
+    request would trigger a fresh header probe against Discord.
 
     A full LRU would be marginally better, but FIFO is fine for read-mostly
     workloads and avoids pulling in another dependency.
@@ -150,7 +150,7 @@ class EncryptingFileContentRepository(IFileContentRepository):
 
     async def get(
         self,
-        fv: "TGFSFileVersion",
+        fv: "DCFSFileVersion",
         begin: int,
         end: int,
         name: str,
@@ -165,7 +165,7 @@ class EncryptingFileContentRepository(IFileContentRepository):
 
             return empty()
 
-        # Step 1: detect whether this file is encrypted (TGFS magic at byte 0)
+        # Step 1: detect whether this file is encrypted (DCFS magic at byte 0)
         # or a legacy plaintext file. Plaintext files are passed straight
         # through so reads keep working across an encryption-enabled boundary.
         detected = await self._detect(fv, name)
@@ -216,7 +216,7 @@ class EncryptingFileContentRepository(IFileContentRepository):
         # ``chunk_size + CHUNK_OVERHEAD``.
         ct_end_excl = min(ct_end_excl, fv.size)
         # ``IFileContentRepository.get`` expects an INCLUSIVE end (matching
-        # HTTP Range and the underlying Telegram download_file API), so
+        # HTTP Range and the underlying Discord download_file API), so
         # convert here. Without this conversion the inner stack reads one
         # extra ciphertext byte at a chunk boundary, which makes the AES-GCM
         # tag check on the following chunk fail.
@@ -245,7 +245,7 @@ class EncryptingFileContentRepository(IFileContentRepository):
             chunk_size=header.chunk_size,
         )
 
-    async def content_length(self, fv: "TGFSFileVersion") -> int:
+    async def content_length(self, fv: "DCFSFileVersion") -> int:
         if fv.size <= 0:
             return 0
         # ``_detect`` already caches per file, so the second call from a HEAD
@@ -259,7 +259,7 @@ class EncryptingFileContentRepository(IFileContentRepository):
     # -- internals ---------------------------------------------------------
 
     async def _detect(
-        self, fv: "TGFSFileVersion", name: str
+        self, fv: "DCFSFileVersion", name: str
     ) -> Optional[tuple[FileHeader, bytes]]:
         """Probe the start of the file to decide between encrypted and legacy.
 
@@ -268,7 +268,7 @@ class EncryptingFileContentRepository(IFileContentRepository):
         be passed through to the inner repository unchanged.
 
         Magic byte sniffing is the only signal used: if the first four bytes
-        are not ``"TGFS"`` the file is treated as plaintext. If the magic
+        are not ``"DCFS"`` the file is treated as plaintext. If the magic
         matches but the header is malformed or its MAC does not authenticate,
         we raise rather than silently falling back -- otherwise a wrong master
         key would be indistinguishable from "this is just a plaintext file".
@@ -298,7 +298,7 @@ class EncryptingFileContentRepository(IFileContentRepository):
 
         if len(buf) < HEADER_SIZE:
             raise InvalidHeaderError(
-                f"file '{name}' starts with TGFS magic but is shorter than "
+                f"file '{name}' starts with DCFS magic but is shorter than "
                 f"the encryption header ({len(buf)} < {HEADER_SIZE} bytes)"
             )
 

@@ -1,20 +1,20 @@
 from dataclasses import dataclass
 
-from .directory import TGFSDirectory
+from .directory import DCFSDirectory
 
 
 @dataclass
-class TGFSMetadata:
-    dir: TGFSDirectory
+class DCFSMetadata:
+    dir: DCFSDirectory
 
     @staticmethod
-    def from_dict(data: dict) -> "TGFSMetadata":
-        return TGFSMetadata(
-            dir=TGFSDirectory.from_dict(data["dir"]),
+    def from_dict(data: dict) -> "DCFSMetadata":
+        return DCFSMetadata(
+            dir=DCFSDirectory.from_dict(data["dir"]),
         )
 
     def to_dict(self) -> dict:
         return {
-            "type": "TGFSMetadata",
+            "type": "DCFSMetadata",
             "dir": self.dir.to_dict(),
         }

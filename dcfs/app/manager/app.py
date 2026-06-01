@@ -20,7 +20,7 @@ def create_manager_app(clients: Clients, config: Config) -> FastAPI:
     ops = {channel_id: Ops(client) for channel_id, client in clients.items()}
 
     def get_name_by_channel_id(channel_id: int) -> str:
-        return config.tgfs.metadata[str(channel_id)].name
+        return config.dcfs.metadata[str(channel_id)].name
 
     app = FastAPI()
 

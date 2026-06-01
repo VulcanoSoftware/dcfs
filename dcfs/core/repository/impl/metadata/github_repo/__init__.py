@@ -4,7 +4,7 @@ from github import Github
 from github.ContentFile import ContentFile
 
 from dcfs.config import GithubRepoConfig
-from dcfs.core.model import TGFSDirectory, TGFSMetadata
+from dcfs.core.model import DCFSDirectory, DCFSMetadata
 from dcfs.core.repository.interface import IMetaDataRepository
 
 from .gh_directory import GithubConfig, GithubDirectory
@@ -28,9 +28,9 @@ class GithubRepoMetadataRepository(IMetaDataRepository):
     async def push(self) -> None:
         pass
 
-    async def get(self) -> TGFSMetadata:
+    async def get(self) -> DCFSMetadata:
         root_dir = self._build_directory_structure()
-        return TGFSMetadata(dir=root_dir)
+        return DCFSMetadata(dir=root_dir)
 
     def _build_directory_structure(self) -> GithubDirectory:
         root = GithubDirectory(
@@ -75,7 +75,7 @@ class GithubRepoMetadataRepository(IMetaDataRepository):
                     if content.name == ".gitkeep":
                         continue
                     file_name, message_id = content.name.rsplit(".", 1)
-                    TGFSDirectory.create_file_ref(
+                    DCFSDirectory.create_file_ref(
                         parent_dir, file_name, int(message_id)
                     )
                 except ValueError:

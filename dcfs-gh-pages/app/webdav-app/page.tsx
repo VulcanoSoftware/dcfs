@@ -12,12 +12,10 @@ import {
   Button,
   CircularProgress,
   Container,
-  CssBaseline,
   FormControlLabel,
   Paper,
   Switch,
   TextField,
-  ThemeProvider,
   Typography,
 } from "@mui/material";
 import Cookies from "js-cookie";
@@ -25,7 +23,6 @@ import React, { useEffect, useState } from "react";
 import errors from "./error";
 import FileExplorer from "./file-explorer";
 import ManagerClient from "./manager-client";
-import { discordTheme } from "./discord-theme";
 import WebDAVClient from "./webdav-client";
 
 interface LoginFormData {
@@ -64,7 +61,7 @@ export default function WebDAVApp() {
   };
 
   const retrieveToken = React.useCallback(async (): Promise<string> => {
-    const retrievedString = Cookies.get("jwt_token");
+    const retrievedString = Cookies.get(JWT_TOKEN_KEY);
     return retrievedString ?? "";
   }, []);
 
@@ -79,11 +76,11 @@ export default function WebDAVApp() {
   }, []);
 
   const clearToken = React.useCallback(async () => {
-    Cookies.remove("jwt_token");
+    Cookies.remove(JWT_TOKEN_KEY);
   }, []);
 
   const saveToken = React.useCallback(async (token: string) => {
-    Cookies.set("jwt_token", token);
+    Cookies.set(JWT_TOKEN_KEY, token);
   }, []);
 
   const saveSavedInfo = React.useCallback(
@@ -211,8 +208,7 @@ export default function WebDAVApp() {
   }, [clearToken]);
 
   return (
-    <ThemeProvider theme={discordTheme}>
-      <CssBaseline />
+    <>
       {isLoggedIn && webdavClient && managerClient ? (
         <Container maxWidth="sm" sx={{ py: 2, minHeight: "100vh" }}>
           <Box
@@ -345,6 +341,6 @@ export default function WebDAVApp() {
           </Paper>
         </Container>
       )}
-    </ThemeProvider>
+    </>
   );
 }

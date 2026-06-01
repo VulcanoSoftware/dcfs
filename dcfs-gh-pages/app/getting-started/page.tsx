@@ -101,17 +101,17 @@ export default function GettingStarted() {
                     </a>
                   </li>
                   <li style={{ marginBottom: "12px" }}>
-                    Click <b>"New Application"</b> and give it a name
+                    Click <b>&quot;New Application&quot;</b> and give it a name
                   </li>
                   <li style={{ marginBottom: "12px" }}>
-                    Go to the <b>"Bot"</b> section and click <b>"Add Bot"</b>
+                    Go to the <b>&quot;Bot&quot;</b> section and click <b>&quot;Add Bot&quot;</b>
                   </li>
                   <li style={{ marginBottom: "12px" }}>
-                    Under the <b>"Privileged Gateway Intents"</b> section, enable{" "}
-                    <b>"Message Content Intent"</b> and <b>"Server Members Intent"</b>
+                    Under the <b>&quot;Privileged Gateway Intents&quot;</b> section, enable{" "}
+                    <b>&quot;Message Content Intent&quot;</b> and <b>&quot;Server Members Intent&quot;</b>
                   </li>
                   <li style={{ marginBottom: "12px" }}>
-                    Click <b>"Reset Token"</b> or <b>"Copy"</b> to get your bot token
+                    Click <b>&quot;Reset Token&quot;</b> or <b>&quot;Copy&quot;</b> to get your bot token
                   </li>
                 </ol>
                 <div style={{ marginTop: "24px" }}>

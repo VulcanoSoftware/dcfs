@@ -1,6 +1,6 @@
 "use client";
 
-import { Add, ContentCopy, Download, Refresh } from "@mui/icons-material";
+import { Add, ContentCopy, Delete, Download, Refresh } from "@mui/icons-material";
 import {
   Alert,
   AlertTitle,
@@ -321,10 +321,7 @@ export default function ConfigGenerator() {
     updateConfig("discord.channels", newChannels);
   };
 
-  const removeChannel = (index: number) => {
-    const newChannels = config.discord.channels.filter((_, i) => i !== index);
-    updateConfig("discord.channels", newChannels);
-  };
+
 
   const updateChannel = (
     index: number,
@@ -562,15 +559,30 @@ export default function ConfigGenerator() {
                     )}
                   </Box>
                 ))}
-                <Button
-                  startIcon={<Add />}
-                  onClick={addChannel}
-                  variant="outlined"
-                  size="small"
-                  sx={{ mt: 1 }}
-                >
-                  Add Another Channel
-                </Button>
+                <Box sx={{ display: "flex", gap: 1, mt: 1 }}>
+                  {config.discord.channels.length > 1 && (
+                    <Button
+                      startIcon={<Delete />}
+                      color="error"
+                      variant="outlined"
+                      size="small"
+                      onClick={() => {
+                        const newChannels = config.discord.channels.slice(0, -1);
+                        updateConfig("discord.channels", newChannels);
+                      }}
+                    >
+                      Remove Last Channel
+                    </Button>
+                  )}
+                  <Button
+                    startIcon={<Add />}
+                    onClick={addChannel}
+                    variant="outlined"
+                    size="small"
+                  >
+                    Add Another Channel
+                  </Button>
+                </Box>
               </Box>
             </FormSection>
 

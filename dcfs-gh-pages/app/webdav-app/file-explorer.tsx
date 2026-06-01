@@ -9,9 +9,9 @@ import {
   Folder,
   Home,
   InsertDriveFile,
+  Link as LinkIcon,
   MoreVert,
   Refresh,
-  Link,
 } from "@mui/icons-material";
 import {
   Alert,
@@ -588,7 +588,7 @@ export default function FileExplorer({
             {managerClient && (
               <Button
                 variant="outlined"
-                startIcon={<Discord />}
+                startIcon={<LinkIcon />}
                 onClick={() => {
                   setUploadDialog(false);
                   setDiscordLinkDialog(true);

@@ -1,8 +1,9 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/TheodoreKrypton/tgfs/master/tgfs.png" alt="logo" width="100"/>
+  <h1 align="center">dcfs</h1>
 </p>
 
 [![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)](https://hub.docker.com/r/wheatcarrier/dcfs)
+[![GitHub Pages](https://img.shields.io/badge/GitHub%20Pages-Live-blue?style=for-the-badge&logo=github)](https://vulcanosoftware.github.io/dcfs)
 
 # dcfs
 
@@ -114,6 +115,17 @@ Before committing and pushing, run the following command to install git hooks:
 ```bash
 pre-commit install
 ```
+
+## Web Frontend
+
+A Next.js-based web frontend is available at the [GitHub Pages site](https://vulcanosoftware.github.io/dcfs) with the following features:
+
+* **Config Generator** — Interactive form to generate `config.yaml` files with validation
+* **Getting Started Guide** — Step-by-step wizard for setting up your Discord bot, channels, and server
+* **WebDAV App** — Built-in file explorer to browse, upload, download, and manage files via WebDAV
+* **Task Manager** — Real-time progress tracking for file uploads and imports
+
+The frontend source code is in the `dcfs-gh-pages/` directory.
 
 ## Demo Server
 * WebDAV URL: `https://dcfs-demo.wheatcarrier.site/webdav`

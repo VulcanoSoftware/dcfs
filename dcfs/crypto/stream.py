@@ -117,11 +117,26 @@ class EncryptingFileMessage(UploadableFileMessage):
     async def read(self, length: int) -> bytes:
         """Return up to ``length`` ciphertext bytes.
 
-        The contract matches ``FileMessageFromPath.read``: the uploader
-        already constrains the request to the remaining file size, so we
-        do not need to track an end-of-stream sentinel beyond producing
-        whatever the cipher emits.
+        Respects the current part size stored in ``self.size`` (which is
+        set by the multi-part upload protocol in
+        ``DCMsgFileContentRepository.save()``).  Each call returns at most
+        ``self.size - self._read_size`` bytes so that the caller receives
+        exactly the declared part size before ``next_part()`` resets the
+        counter.
+
+        If ``open()`` was not called before the first ``read()``, the
+        header is emitted lazily so that the ciphertext stream always
+        starts with the DCFS encryption header.
         """
+        # Lazy-init: emit header if open() was never called.
+        if not self._header_emitted:
+            await self.open()
+
+        remaining = self.size - self._read_size
+        if remaining <= 0:
+            return b""
+        length = min(length, remaining)
+
         out = bytearray()
         while len(out) < length:
             # Drain pending bytes first.
@@ -141,6 +156,7 @@ class EncryptingFileMessage(UploadableFileMessage):
             self._chunk_index += 1
             self._pending = encrypted
 
+        self._read_size += len(out)
         return bytes(out)
 
     async def _read_plaintext_chunk(self) -> bytes:

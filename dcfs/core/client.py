@@ -36,12 +36,14 @@ class Client:
         metadata_cfg: MetadataConfig,
         discord_api: DiscordApi,
         encryption_cfg: Optional[EncryptionConfig] = None,
+        download_max_concurrent_parts: int = 3,
     ) -> "Client":
         channel = await discord_api.next_bot.resolve_channel_id(channel_id)
         message_api = MessageApi(discord_api, channel)
 
         fc_repo: IFileContentRepository = DCMsgFileContentRepository(
             message_api,
+            max_concurrent_parts=download_max_concurrent_parts,
         )
 
         # Wrap the file-content repository in an encryption decorator if

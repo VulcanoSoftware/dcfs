@@ -37,6 +37,7 @@ async def create_clients(config: Config) -> Clients:
             metadata_cfg,
             discord_api,
             encryption_cfg=config.dcfs.encryption,
+            download_max_concurrent_parts=config.dcfs.download.download_max_concurrent_parts,
         )
     return clients
 

@@ -155,6 +155,15 @@ class EncryptingFileContentRepository(IFileContentRepository):
         end: int,
         name: str,
     ) -> FileContent:
+        logger.warning(
+            "get: fv.size=%d fv.part_sizes=%s fv.message_ids=%s name=%s begin=%d end=%d",
+            fv.size,
+            fv.part_sizes,
+            fv.message_ids,
+            name,
+            begin,
+            end,
+        )
         if fv.size <= 0:
             # Empty file -- the inner repo returns an empty iterator; we
             # forward that as-is. The plaintext range is meaningless here.
@@ -273,6 +282,13 @@ class EncryptingFileContentRepository(IFileContentRepository):
         we raise rather than silently falling back -- otherwise a wrong master
         key would be indistinguishable from "this is just a plaintext file".
         """
+        logger.warning(
+            "_detect: fv.size=%d fv.part_sizes=%s fv.message_ids=%s name=%s",
+            fv.size,
+            fv.part_sizes,
+            fv.message_ids,
+            name,
+        )
         hit, cached = self._cache.lookup(fv.id)
         if hit:
             return cached

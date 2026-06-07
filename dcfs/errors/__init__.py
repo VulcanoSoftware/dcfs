@@ -6,7 +6,7 @@ from .path import (
     InvalidName,
     InvalidPath,
 )
-from .discord import FileSizeTooLarge, MessageNotFound
+from .discord import FileSizeTooLarge, MessageNotFound, TransientUploadError
 from .dcfs import (
     DuplicatedChannelIdOrName,
     LoginFailed,
@@ -27,6 +27,7 @@ __all__ = [
     "InvalidPath",
     "FileSizeTooLarge",
     "MessageNotFound",
+    "TransientUploadError",
     "MetadataNotFound",
     "MetadataNotInitialized",
     "NoPinnedMessage",

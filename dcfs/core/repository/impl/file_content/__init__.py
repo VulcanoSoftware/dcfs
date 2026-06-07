@@ -5,7 +5,7 @@ from typing import Generator, List
 from dcfs.core.api import MessageApi
 from dcfs.core.model import DCFSFileVersion
 from dcfs.core.repository.interface import IFileContentRepository
-from dcfs.errors import TechnicalError
+from dcfs.errors import TechnicalError, TransientUploadError
 from dcfs.reqres import (
     EditMessageMediaReq,
     FileContent,
@@ -13,20 +13,61 @@ from dcfs.reqres import (
     SentFileMessage,
     UploadableFileMessage,
 )
-from dcfs.utils.chained_async_iterator import ChainedAsyncIterator
 
 from .file_uploader import FileUploader
 
 logger = logging.getLogger(__name__)
 RETRY_INTERVAL = 5  # seconds
+MAX_RETRIES = 10
 
-# Discord attachment limit is 25 MB, we use a conservative 20 MB part size
-PART_SIZE = 20 * 1024 * 1024
+
+def _is_transient(ex: Exception) -> bool:
+    """Classify a Discord upload error as transient (retryable) or permanent.
+
+    Transient errors are things like rate limits (429) and server errors (5xx)
+    where retrying after a delay may succeed.  Permanent errors like 413
+    (Payload Too Large) will never succeed by retrying.
+    """
+    from dcfs.errors import FileSizeTooLarge
+
+    if isinstance(ex, FileSizeTooLarge):
+        return False
+
+    # discord.py's RateLimited exception has a .retry_after attribute
+    if hasattr(ex, "retry_after"):
+        return True
+
+    # discord.py HTTPException exposes a .status attribute
+    status = getattr(ex, "status", None)
+    if status is not None:
+        if status == 429:  # Rate Limited
+            return True
+        if 500 <= status < 600:  # Server errors
+            return True
+        if 400 <= status < 500:  # Other client errors (incl. 413)
+            return False
+
+    # Network / transport errors
+    if isinstance(ex, (ConnectionError, TimeoutError, OSError)):
+        return True
+
+    # Unknown errors — don't retry blindly
+    return False
+
+# Discord's file-size limit covers the entire HTTP multipart request body,
+# not just the raw file payload.  Multipart encoding overhead (boundary
+# markers, Content-Disposition headers, caption, etc.) adds several KB.
+# For unboosted servers the limit is 8 MB; with server boosts it can be
+# 25-50 MB.  We use 7 MB as a safe default that works everywhere.
+PART_SIZE = 7 * 1024 * 1024
 
 
 class DCMsgFileContentRepository(IFileContentRepository):
-    def __init__(self, message_api: MessageApi):
+    def __init__(self, message_api: MessageApi, max_concurrent_parts: int = 3):
+        if max_concurrent_parts < 1:
+            raise ValueError("max_concurrent_parts must be >= 1")
         self._message_api = message_api
+        self._download_semaphore = asyncio.Semaphore(max_concurrent_parts)
 
     async def _send_file(
         self, file_msg: UploadableFileMessage
@@ -40,17 +81,32 @@ class DCMsgFileContentRepository(IFileContentRepository):
         )
         size = await uploader.upload()
 
-        while True:
+        for attempt in range(MAX_RETRIES + 1):
             try:
                 message = await uploader.send(
                     self._message_api.private_file_channel,
                 )
                 return SentFileMessage(message_id=message.message_id, size=size)
             except Exception as ex:
-                logger.error(
-                    f"Exception occurred when sending file {file_msg.name}: {ex}. "
-                    f"Waiting {RETRY_INTERVAL} seconds before retrying."
+                if not _is_transient(ex):
+                    logger.error(
+                        f"Permanent error sending file {file_msg.name}: {ex}"
+                    )
+                    raise
+                if attempt >= MAX_RETRIES:
+                    logger.error(
+                        f"Failed to send file {file_msg.name} after "
+                        f"{MAX_RETRIES} retries: {ex}"
+                    )
+                    raise TransientUploadError(
+                        file_msg.name, MAX_RETRIES, ex
+                    ) from ex
+                logger.warning(
+                    f"Transient error sending file {file_msg.name} "
+                    f"(attempt {attempt + 1}/{MAX_RETRIES}): {ex}. "
+                    f"Retrying in {RETRY_INTERVAL}s."
                 )
+                uploader.reset_buffer()
                 await asyncio.sleep(RETRY_INTERVAL)
 
     @staticmethod
@@ -71,6 +127,10 @@ class DCMsgFileContentRepository(IFileContentRepository):
         ):
             file_msg.name = f"[part{i+1}]{file_name}"
             file_msg.size = part_size
+            logger.info(
+                f"Uploading part {i+1} of {file_name}: "
+                f"declared size={part_size} bytes"
+            )
             res.append(
                 await self._send_file(file_msg)
             )
@@ -86,7 +146,7 @@ class DCMsgFileContentRepository(IFileContentRepository):
         uploader = FileUploader(self._message_api.discord_api.next_bot, file_msg)
         await uploader.upload()
 
-        while True:
+        for attempt in range(MAX_RETRIES + 1):
             try:
                 message = await uploader.client.edit_message_media(
                     EditMessageMediaReq(
@@ -97,9 +157,23 @@ class DCMsgFileContentRepository(IFileContentRepository):
                 )
                 return message.message_id
             except Exception as ex:
-                logger.error(
-                    f"Exception occurred when editing document of message {message_id}: {ex}. "
-                    f"Waiting {RETRY_INTERVAL} seconds before retrying."
+                if not _is_transient(ex):
+                    logger.error(
+                        f"Permanent error editing message {message_id}: {ex}"
+                    )
+                    raise
+                if attempt >= MAX_RETRIES:
+                    logger.error(
+                        f"Failed to edit message {message_id} after "
+                        f"{MAX_RETRIES} retries: {ex}"
+                    )
+                    raise TransientUploadError(
+                        name, MAX_RETRIES, ex
+                    ) from ex
+                logger.warning(
+                    f"Transient error editing message {message_id} "
+                    f"(attempt {attempt + 1}/{MAX_RETRIES}): {ex}. "
+                    f"Retrying in {RETRY_INTERVAL}s."
                 )
                 await asyncio.sleep(RETRY_INTERVAL)
 
@@ -150,8 +224,39 @@ class DCMsgFileContentRepository(IFileContentRepository):
     ) -> FileContent:
         logger.info(f"Retrieving file content for {name}@{fv.id} from {begin} to {end}")
 
-        tasks = []
-        for message_id, begin, end in self._get_file_part_to_download(fv, begin, end):
-            tasks.append(self._message_api.download_file(message_id, begin, end))
+        async def _download_one(message_id: int, part_begin: int, part_end: int):
+            async with self._download_semaphore:
+                return await self._message_api.download_file(
+                    message_id, part_begin, part_end
+                )
 
-        return ChainedAsyncIterator((x.chunks for x in await asyncio.gather(*tasks)))
+        # Build asyncio.Tasks so all downloads start in the background
+        # immediately (concurrency gated by self._download_semaphore).
+        # The list comprehension eagerly consumes the generator so all
+        # tasks are spawned before we start awaiting any of them.
+        tasks = [
+            asyncio.create_task(_download_one(msg_id, part_b, part_e))
+            for msg_id, part_b, part_e in self._get_file_part_to_download(
+                fv, begin, end
+            )
+        ]
+
+        async def _ordered_stream():
+            """Yield bytes from each part in order as soon as it is ready.
+
+            Tasks run in the background (up to MAX_CONCURRENT_PARTS at a time)
+            so later parts may already be downloaded by the time we finish
+            streaming earlier ones -- eliminating the gather-all-then-start
+            bottleneck.
+            """
+            try:
+                for task in tasks:
+                    result = await task
+                    async for chunk in result.chunks:
+                        yield chunk
+            finally:
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+
+        return _ordered_stream()

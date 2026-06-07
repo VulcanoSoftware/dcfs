@@ -29,3 +29,18 @@ class MessageNotFound(DiscordError):
             cause=message,
             http_error=HTTPStatus.NOT_FOUND,
         )
+
+
+class TransientUploadError(DiscordError):
+    """Raised when a file upload fails after exhausting retries on transient errors."""
+
+    def __init__(self, file_name: str, retries: int, last_error: Exception):
+        message = (
+            f"Failed to upload '{file_name}' after {retries} retries: {last_error}"
+        )
+        super().__init__(
+            message=message,
+            code=ErrorCode.UNKNOWN,
+            cause=str(last_error),
+            http_error=HTTPStatus.SERVICE_UNAVAILABLE,
+        )

@@ -42,6 +42,7 @@ class DCFSFileVersion:
             updatedAt=self.updated_at_timestamp,
             messageIds=self.message_ids,
             size=self.size,
+            partSizes=self.part_sizes,
         )
 
     @staticmethod
@@ -73,11 +74,20 @@ class DCFSFileVersion:
                 message_ids = [message_id]
             else:
                 message_ids = []
+
+        # Deserialize part sizes; fall back to [serialized_size] for
+        # single-part files stored without explicit partSizes (backwards compat).
+        part_sizes: list[int] = data.get("partSizes", [])
+        serialized_size: int = data.get("size", INVALID_FILE_SIZE)
+        if not part_sizes and serialized_size > 0 and len(message_ids) == 1:
+            part_sizes = [serialized_size]
+
         return DCFSFileVersion(
             id=data["id"],
             updated_at=updated_at,
             message_ids=message_ids,
-            part_sizes=[],  # part sizes are not serialized
+            _size=serialized_size,
+            part_sizes=part_sizes,
         )
 
     def set_invalid(self):

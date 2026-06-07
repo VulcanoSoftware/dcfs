@@ -20,6 +20,14 @@ class TestDownloadConfig:
         config = DownloadConfig.from_dict(data)
 
         assert config.chunk_size_kb == 1024
+        assert config.download_max_concurrent_parts == 3  # default
+
+    def test_from_dict_custom_concurrent(self):
+        data = {"chunk_size_kb": 1024, "download_max_concurrent_parts": 5}
+        config = DownloadConfig.from_dict(data)
+
+        assert config.chunk_size_kb == 1024
+        assert config.download_max_concurrent_parts == 5
 
 
 class TestUserConfig:

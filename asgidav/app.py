@@ -12,6 +12,7 @@ from .folder import Folder
 from .member import Member
 from .reqres import PropfindRequest, propfind
 from .resource import Resource
+from dcfs.errors import TechnicalError
 
 logger = logging.getLogger(__name__)
 
@@ -191,13 +192,28 @@ def create_app(
     async def put(request: Request, path: str):
         content_length = request.headers.get("Content-Length", "0")
         size = int(content_length)
-        if not (member := await get_member(path)):
-            member = await (await root()).create_empty_resource(path)
-        if isinstance(member, Resource):
-            if size > 0:
-                await member.overwrite(request.stream(), size=size)
-            return CREATED
-        return CONFLICT("Cannot PUT to a directory")
+        try:
+            if not (member := await get_member(path)):
+                member = await (await root()).create_empty_resource(path)
+            if isinstance(member, Resource):
+                if size > 0:
+                    await member.overwrite(request.stream(), size=size)
+                return CREATED
+            return CONFLICT("Cannot PUT to a directory")
+        except TechnicalError as ex:
+            logger.warning(f"PUT {path} failed: {ex}")
+            return Response(
+                status_code=ex.http_error.value,
+                content=str(ex),
+                headers=common_headers,
+            )
+        except Exception as ex:
+            logger.error(f"Unexpected error during PUT {path}: {ex}")
+            return Response(
+                status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+                content=str(ex),
+                headers=common_headers,
+            )
 
     @app.delete("/{path:path}")
     async def delete(request: Request, path: str):

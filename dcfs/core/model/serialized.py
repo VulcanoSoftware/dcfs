@@ -8,6 +8,7 @@ class DCFSFileVersionSerialized(TypedDict, total=False):
     messageId: int
     messageIds: List[int]
     size: int
+    partSizes: List[int]
 
 
 class DCFSFileDescSerialized(TypedDict, total=False):

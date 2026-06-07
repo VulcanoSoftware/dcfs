@@ -14,6 +14,7 @@ dcfs:
   users:
   download:
     chunk_size_kb: 1024
+    download_max_concurrent_parts: 3
   jwt:
     secret: hidden
     algorithm: HS256

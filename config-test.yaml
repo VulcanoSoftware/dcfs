@@ -12,6 +12,7 @@ dcfs:
       readonly: false
   download:
     chunk_size_kb: 512
+    download_max_concurrent_parts: 3
   jwt:
     secret: test_jwt_secret
     algorithm: HS256

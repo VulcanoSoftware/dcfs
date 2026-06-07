@@ -1,8 +1,8 @@
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Literal, Optional, Self, TypedDict
+from typing import Dict, List, Optional, Self, TypedDict
 
 import yaml
 
@@ -15,10 +15,16 @@ CONFIG_FILE = os.environ.get("DCFS_CONFIG_FILE", "config.yaml")
 @dataclass
 class DownloadConfig:
     chunk_size_kb: int
+    download_max_concurrent_parts: int = 3
 
     @classmethod
     def from_dict(cls, data: dict) -> Self:
-        return cls(chunk_size_kb=data["chunk_size_kb"])
+        return cls(
+            chunk_size_kb=data["chunk_size_kb"],
+            download_max_concurrent_parts=int(
+                data.get("download_max_concurrent_parts", 3)
+            ),
+        )
 
 
 @dataclass

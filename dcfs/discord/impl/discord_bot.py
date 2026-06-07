@@ -176,12 +176,7 @@ class DiscordBotAPI(IDiscordClient):
             file=file,
         )
         # Store the attachment size in the message for later retrieval
-        if message.attachments:
-            return SendMessageResp(
-                message_id=message.id,
-                size=message.attachments[0].size,
-            )
-        return SendMessageResp(message_id=message.id, size=len(req.buffer))
+        return SendMessageResp(message_id=message.id)
 
     async def edit_message_media(self, req: EditMessageMediaReq) -> Message:
         cache = channel_cache(req.chat).id
@@ -281,8 +276,9 @@ async def login_as_bot(config: Config) -> discord.Client:
     async def on_ready():
         logger.info(f"Logged in as {bot.user} (ID: {bot.user.id})")
 
-    # Start the bot in the background
-    asyncio.create_task(bot.start(token))
+    # Login first (HTTP), then start the websocket connection in the background
+    await bot.login(token)
+    asyncio.create_task(bot.connect())
 
     # Wait for the bot to be ready
     await bot.wait_until_ready()

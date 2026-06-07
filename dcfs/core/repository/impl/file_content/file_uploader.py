@@ -13,7 +13,7 @@ from dcfs.discord.interface import IDiscordClient
 logger = logging.getLogger(__name__)
 
 # Discord file size limits
-DISCORD_MAX_FILE_SIZE = 25 * 1024 * 1024  # 25 MB for regular bots
+DISCORD_MAX_FILE_SIZE = 8 * 1024 * 1024  # 8 MB for unboosted Discord servers
 
 
 class FileUploader:
@@ -24,7 +24,6 @@ class FileUploader:
     ):
         self.client = client
         self._file_msg = file_msg
-        self._file_size = self._file_msg.get_size()
         self._file_name = self._file_msg.file_name()
 
         # For Discord, we upload the entire file as one attachment
@@ -60,6 +59,10 @@ class FileUploader:
         self._buffer.seek(0)
         return size
 
+    def reset_buffer(self) -> None:
+        """Seek the upload buffer back to the start for a retry."""
+        self._buffer.seek(0)
+
     async def send(self, chat_id: int, caption: str = "") -> SendMessageResp:
         """Send the uploaded file as a Discord message attachment."""
         logger.debug(f"Sending file {self._file_name} to chat {chat_id}")
@@ -67,6 +70,10 @@ class FileUploader:
         content = self._buffer.read()
         if not content:
             raise TechnicalError(f"No content to send for {self._file_name}")
+
+        logger.info(
+            f"Sending {len(content)} bytes as '{self._file_name}' to chat {chat_id}"
+        )
 
         req = SendFileReq(
             chat=chat_id,

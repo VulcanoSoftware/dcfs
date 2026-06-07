@@ -93,6 +93,7 @@ class TestDCFSFileVersion:
             "updatedAt": ts(test_dt),
             "messageIds": [123, 456],
             "size": 1024,
+            "partSizes": [512, 512],
         }
 
         assert result == expected

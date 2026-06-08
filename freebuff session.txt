@@ -1,2 +1,0 @@
-To continue this session later, run:
-freebuff --continue 2026-05-31T22-13-19.972Z

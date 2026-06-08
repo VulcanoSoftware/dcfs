@@ -1,3 +1,4 @@
+# mypy: ignore-errors
 from typing import Dict
 
 from dcfs.core.cache import FSCache

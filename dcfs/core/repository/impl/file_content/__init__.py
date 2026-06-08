@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Generator, List, AsyncIterator
+from typing import Generator, List, AsyncIterator, Optional
 
 from dcfs.core.api import MessageApi
 from dcfs.core.model import DCFSFileVersion
@@ -52,16 +52,18 @@ class DCMsgFileContentRepository(IFileContentRepository):
         self._message_api = message_api
         self._download_semaphore = asyncio.Semaphore(max_concurrent_parts)
 
-    async def save(self, f: FileMessageFromBuffer) -> List[SentFileMessage]:
-        uploader = FileUploader(self._message_api)
-        for chunk in f.chunks:
-            uploader.add_file(UploadableFileMessage(name=f.name, buffer=chunk))
+    async def save(self, file_msg: UploadableFileMessage) -> List[SentFileMessage]:
+        uploader = FileUploader(self._message_api.discord_api.bot, file_msg)
 
         retries = 0
+        last_ex: Optional[Exception] = None
         while retries < MAX_RETRIES:
             try:
-                return await uploader.upload()
+                size = await uploader.upload()
+                resp = await uploader.send(self._message_api.private_file_channel)
+                return [SentFileMessage(message_id=resp.message_id, size=size)]
             except Exception as ex:
+                last_ex = ex
                 if not _is_transient(ex):
                     logger.error(f"Permanent upload failure: {ex}")
                     raise TechnicalError(f"Permanent upload failure: {ex}") from ex
@@ -72,21 +74,24 @@ class DCMsgFileContentRepository(IFileContentRepository):
                 )
                 await asyncio.sleep(RETRY_INTERVAL)
 
-        raise TransientUploadError(f"Failed to upload file after {MAX_RETRIES} retries due to transient errors.")
+        raise TransientUploadError(file_msg.name, MAX_RETRIES, last_ex or Exception("Unknown error"))
 
-    async def update(self, message_id: int, buffer: bytes, name: str) -> SentFileMessage:
+    async def update(self, message_id: int, buffer: bytes, name: str) -> int:
         retries = 0
+        last_ex: Optional[Exception] = None
         while retries < MAX_RETRIES:
             try:
-                resp = await self._message_api.edit_message_media(
+                resp = await self._message_api.discord_api.bot.edit_message_media(
                     EditMessageMediaReq(
+                        chat=self._message_api.private_file_channel,
                         message_id=message_id,
                         buffer=buffer,
                         name=name,
                     )
                 )
-                return SentFileMessage(message_id=resp.message_id, size=len(buffer))
+                return resp.message_id
             except Exception as ex:
+                last_ex = ex
                 if not _is_transient(ex):
                     logger.error(f"Permanent update failure: {ex}")
                     raise TechnicalError(f"Permanent update failure: {ex}") from ex
@@ -97,25 +102,25 @@ class DCMsgFileContentRepository(IFileContentRepository):
                 )
                 await asyncio.sleep(RETRY_INTERVAL)
 
-        raise TransientUploadError(f"Failed to update file after {MAX_RETRIES} retries due to transient errors.")
+        raise TransientUploadError(name, MAX_RETRIES, last_ex or Exception("Unknown error"))
 
     def _get_file_part_to_download(
         self, fv: DCFSFileVersion, begin: int, end: int
     ) -> Generator[tuple[int, int, int], None, None]:
         current_pos = 0
-        for part in fv.parts:
-            part_end_pos = current_pos + part.size - 1
+        for msg_id, part_size in zip(fv.message_ids, fv.part_sizes):
+            part_end_pos = current_pos + part_size - 1
 
             if begin <= part_end_pos and (end == -1 or end >= current_pos):
                 part_begin = max(0, begin - current_pos)
                 if end == -1:
-                    part_end = part.size - 1
+                    part_end = part_size - 1
                 else:
-                    part_end = min(part.size - 1, end - current_pos)
+                    part_end = min(part_size - 1, end - current_pos)
 
-                yield part.message_id, part_begin, part_end
+                yield msg_id, part_begin, part_end
 
-            current_pos += part.size
+            current_pos += part_size
 
     async def get(self, fv: DCFSFileVersion, begin: int, end: int, name: str) -> AsyncIterator[bytes]:
         async def _download_one(message_id: int, part_begin: int, part_end: int):

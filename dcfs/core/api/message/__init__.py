@@ -14,6 +14,7 @@ from dcfs.reqres import (
     DownloadFileReq,
     DownloadFileResp,
     EditMessageTextReq,
+    GetPinnedMessageReq,
     MessageResp,
     PinMessageReq,
     SearchMessageReq,

@@ -8,11 +8,12 @@ from urllib.parse import unquote, urlparse
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import StreamingResponse
 
+from dcfs.errors import TechnicalError
+
 from .folder import Folder
 from .member import Member
 from .reqres import PropfindRequest, propfind
 from .resource import Resource
-from dcfs.errors import TechnicalError
 
 logger = logging.getLogger(__name__)
 

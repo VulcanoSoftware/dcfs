@@ -1,13 +1,13 @@
 import asyncio
 import io
 import logging
-import os
-from typing import List, Optional, Sequence, Any
+from typing import Any, List, Optional
 
 import aiohttp
 import discord
 
 from dcfs.config import Config
+from dcfs.discord.interface import IDiscordClient
 from dcfs.errors import TechnicalError, UnDownloadableMessage
 from dcfs.reqres import (
     DeleteMessagesReq,
@@ -29,8 +29,6 @@ from dcfs.reqres import (
     SendMessageResp,
     SendTextReq,
 )
-from dcfs.discord.interface import IDiscordClient
-from dcfs.utils.others import exclude_none
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +74,7 @@ class DiscordBotAPI(IDiscordClient):
     async def get_messages(self, req: GetMessagesReq) -> GetMessagesResp:
         channel_id = self._parse_channel_id(req.chat)
         channel = await self._get_channel(channel_id)
-        messages = []
+        messages: list[Optional[MessageResp]] = []
         for message_id in req.message_ids:
             try:
                 msg = await channel.fetch_message(message_id)
@@ -131,7 +129,7 @@ class DiscordBotAPI(IDiscordClient):
         channel = await self._get_channel(channel_id)
         msg = await channel.fetch_message(req.message_id)
         if not msg.attachments:
-            raise UnDownloadableMessage()
+            raise UnDownloadableMessage(req.message_id)
         attachment = msg.attachments[0]
         
         session = await self._ensure_http_session()

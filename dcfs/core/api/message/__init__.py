@@ -5,21 +5,18 @@ from typing import Iterable, Iterator, List
 from pyrate_limiter import Duration, InMemoryBucket, Limiter, Rate
 
 from dcfs.config import get_config
-from dcfs.errors import (
-    MessageNotFound,
-    TechnicalError,
-)
+from dcfs.discord.interface import DiscordApi
 from dcfs.reqres import (
     DeleteMessagesReq,
     DownloadFileReq,
     DownloadFileResp,
     EditMessageTextReq,
+    GetPinnedMessageReq,
     MessageResp,
     PinMessageReq,
     SearchMessageReq,
     SendTextReq,
 )
-from dcfs.discord.interface import DiscordApi
 from dcfs.utils.chained_async_iterator import ChainedAsyncIterator
 from dcfs.utils.others import exclude_none, is_big_file
 

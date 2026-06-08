@@ -19,6 +19,7 @@ its declared size.
 
 from __future__ import annotations
 
+import datetime
 import os
 from dataclasses import dataclass, field
 from typing import List
@@ -39,6 +40,7 @@ from dcfs.reqres import (
     SentFileMessage,
     UploadableFileMessage,
 )
+from dcfs.core.model import DCFSFileVersion
 from dcfs.core.repository.interface import IFileContentRepository
 
 
@@ -48,15 +50,8 @@ from dcfs.core.repository.interface import IFileContentRepository
 
 
 @dataclass
-class _FakeFileVersion:
-    id: str
-    size: int
-    _size: int = 0  # private attr accessed by EncryptingFileContentRepository.get()
-    message_ids: List[int] = field(default_factory=list)
-    part_sizes: List[int] = field(default_factory=list)
-
-    def __post_init__(self):
-        self._size = self.size
+class _FakeFileVersion(DCFSFileVersion):
+    pass
 
 
 class _RecordingInMemoryRepo(IFileContentRepository):
@@ -195,7 +190,8 @@ async def test_large_file_parts_stay_under_discord_limit(plaintext_size: int):
     # Verify round-trip decryption.
     fv = _FakeFileVersion(
         id="v1",
-        size=total_ciphertext,
+        updated_at=datetime.datetime.now(),
+        _size=total_ciphertext,
         message_ids=[s.message_id for s in sent],
         part_sizes=[s.size for s in sent],
     )

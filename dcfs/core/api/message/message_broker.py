@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from functools import reduce
 from typing import List, Optional, Set
 
-from dcfs.reqres import GetMessagesReq, GetMessagesResp, MessageResp
 from dcfs.discord.interface import DiscordApi
+from dcfs.reqres import GetMessagesReq, GetMessagesResp, MessageResp
 from dcfs.utils.message_cache import channel_cache
 
 DELAY = 0.5

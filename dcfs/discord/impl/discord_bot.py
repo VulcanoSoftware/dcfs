@@ -2,7 +2,7 @@ import asyncio
 import io
 import logging
 import os
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence, Any
 
 import aiohttp
 import discord
@@ -51,193 +51,124 @@ class DiscordBotAPI(IDiscordClient):
         return self._http_session
 
     @staticmethod
-    def _get_channel(channel_id: int) -> discord.TextChannel:
-        """Get a text channel by ID. Raises if not found."""
-        from dcfs.config import get_config
-
-        config = get_config()
-        guild_id = config.discord.guild_id
-        # Try to get from the bot's cache
-        if guild_id:
-            guild = discord.utils.get(
-                asyncio.get_event_loop()._discord_bot.guilds, id=guild_id  # type: ignore
-            )
-            if guild:
-                channel = guild.get_channel(channel_id)
-                if channel and isinstance(channel, discord.TextChannel):
-                    return channel
-
-        # Fallback: try direct fetch
-        bot = asyncio.get_event_loop()._discord_bot  # type: ignore
-        channel = bot.get_channel(channel_id)
-        if not channel or not isinstance(channel, discord.TextChannel):
-            raise TechnicalError(f"Channel {channel_id} is not a text channel or not found")
+    def _get_channel(channel_id: int) -> Any:
+        channel = channel_cache.get(channel_id)
+        if channel is None:
+            raise TechnicalError(f"Channel {channel_id} not found.")
         return channel
 
-    @staticmethod
-    def _transform_messages(
-        messages: Sequence[discord.Message],
-    ) -> GetMessagesResp:
-        res = GetMessagesResp()
-
-        for m in messages:
-            if not m:
-                res.append(None)
-                continue
-
-            document = None
-            if m.attachments:
-                attachment = m.attachments[0]
-                document = Document(
-                    size=attachment.size,
-                    id=attachment.id,
-                    access_hash=0,
-                    file_reference=b"",
-                    mime_type=attachment.content_type or "application/octet-stream",
-                )
-
-            message_resp = MessageResp(
-                message_id=m.id,
-                text=m.content or "",
-                document=document,
-            )
-            res.append(message_resp)
-        return res
-
-    async def get_messages(self, req: GetMessagesReq) -> GetMessagesResp:
-        cache = channel_cache(req.chat).id
-        if message_id_to_fetch := cache.find_nonexistent(list(req.message_ids)):
-            channel = self._get_channel(req.chat)
-            fetched: List[discord.Message] = []
-            for mid in message_id_to_fetch:
-                try:
-                    msg = await channel.fetch_message(mid)
-                    fetched.append(msg)
-                except (discord.NotFound, discord.Forbidden):
-                    fetched.append(None)  # type: ignore
-
-            for message in exclude_none(self._transform_messages(fetched)):
-                cache[message.message_id] = message
-
-        return GetMessagesResp(cache.gets(list(req.message_ids)))
-
     async def send_text(self, req: SendTextReq) -> SendMessageResp:
-        channel = self._get_channel(req.chat)
-        message = await channel.send(content=req.text)
-        return SendMessageResp(message_id=message.id)
-
-    async def edit_message_text(self, req: EditMessageTextReq) -> SendMessageResp:
-        cache = channel_cache(req.chat).id
-        cache[req.message_id] = None
-        channel = self._get_channel(req.chat)
-        try:
-            msg = await channel.fetch_message(req.message_id)
-            await msg.edit(content=req.text)
-        except discord.NotFound:
-            # Message was deleted, create a new one
-            new_msg = await channel.send(content=req.text)
-            return SendMessageResp(message_id=new_msg.id)
-        return SendMessageResp(message_id=req.message_id)
-
-    async def search_messages(self, req: SearchMessageReq) -> GetMessagesRespNoNone:
-        cache = channel_cache(req.chat).search
-        if req.search not in cache:
-            channel = self._get_channel(req.chat)
-            result: List[discord.Message] = []
-            async for msg in channel.history(limit=100):
-                if req.search in (msg.content or ""):
-                    result.append(msg)
-            cache[req.search] = tuple(
-                exclude_none(self._transform_messages(result))
-            )
-        return GetMessagesRespNoNone(list(cache[req.search]))
-
-    async def get_pinned_messages(
-        self, req: GetPinnedMessageReq
-    ) -> GetMessagesRespNoNone:
-        channel = self._get_channel(req.chat)
-        pinned = await channel.pins()
-        return list(exclude_none(self._transform_messages(pinned)))
-
-    async def pin_message(self, req: PinMessageReq) -> None:
-        channel = self._get_channel(req.chat)
-        msg = await channel.fetch_message(req.message_id)
-        await msg.pin()
+        channel_id = self._parse_channel_id(req.channel_id)
+        channel = self._get_channel(channel_id)
+        msg = await channel.send(req.text)
+        return SendMessageResp(message_id=msg.id)
 
     async def send_file(self, req: SendFileReq) -> SendMessageResp:
-        channel = self._get_channel(req.chat)
-        # For Discord, we send files as attachments
-        file = discord.File(
-            io.BytesIO(req.buffer),
-            filename=req.name,
-        )
-        message = await channel.send(
-            content=req.caption or "",
-            file=file,
-        )
-        # Store the attachment size in the message for later retrieval
-        return SendMessageResp(message_id=message.id)
+        channel_id = self._parse_channel_id(req.channel_id)
+        channel = self._get_channel(channel_id)
+        f = discord.File(io.BytesIO(req.buffer), filename=req.name)
+        msg = await channel.send(file=f)
+        return SendMessageResp(message_id=msg.id)
 
-    async def edit_message_media(self, req: EditMessageMediaReq) -> Message:
-        cache = channel_cache(req.chat).id
-        cache[req.message_id] = None
-        channel = self._get_channel(req.chat)
+    async def get_messages(self, req: GetMessagesReq) -> GetMessagesResp:
+        channel_id = self._parse_channel_id(req.channel_id)
+        channel = self._get_channel(channel_id)
+        messages = []
+        async for message in channel.history(limit=req.limit, before=req.before, after=req.after):
+            messages.append(self._to_message_dto(message))
+        return GetMessagesResp(messages=messages)
+
+    async def get_pinned_message(self, req: GetPinnedMessageReq) -> GetMessagesResp:
+        channel_id = self._parse_channel_id(req.channel_id)
+        channel = self._get_channel(channel_id)
+        pins = await channel.pins()
+        return GetMessagesResp(messages=[self._to_message_dto(p) for p in pins])
+
+    async def pin_message(self, req: PinMessageReq) -> MessageResp:
+        channel_id = self._parse_channel_id(req.channel_id)
+        channel = self._get_channel(channel_id)
         msg = await channel.fetch_message(req.message_id)
-        # Discord doesn't support editing attachments, so we send a new message
-        # and delete the old one
-        file = discord.File(
-            io.BytesIO(req.buffer),
-            filename=req.name,
-        )
-        new_msg = await channel.send(file=file)
-        await msg.delete()
-        return Message(message_id=new_msg.id)
-
-    async def download_file(self, req: DownloadFileReq) -> DownloadFileResp:
-        channel = self._get_channel(req.chat)
-        try:
-            msg = await channel.fetch_message(req.message_id)
-        except discord.NotFound:
-            raise UnDownloadableMessage(req.message_id)
-
-        if not msg.attachments:
-            raise UnDownloadableMessage(req.message_id)
-
-        attachment = msg.attachments[0]
-        bytes_to_read = req.end - req.begin + 1
-
-        session = await self._ensure_http_session()
-
-        headers = {"Range": f"bytes={req.begin}-{req.end}"} if req.end >= req.begin else {}
-
-        async def chunks():
-            async with session.get(attachment.url, headers=headers) as resp:
-                rest = bytes_to_read
-                async for chunk in resp.content.iter_chunked(CHUNK_SIZE):
-                    if len(chunk) > rest:
-                        chunk = chunk[:rest]
-                    yield chunk
-                    rest -= len(chunk)
-                    if rest <= 0:
-                        break
-
-        return DownloadFileResp(chunks=chunks(), size=bytes_to_read)
+        await msg.pin()
+        return MessageResp(message_id=req.message_id)
 
     async def delete_messages(self, req: DeleteMessagesReq) -> None:
-        if not req.message_ids:
+        channel_id = self._parse_channel_id(req.channel_id)
+        channel = self._get_channel(channel_id)
+        if len(req.message_ids) == 1:
+            msg = await channel.fetch_message(req.message_ids[0])
+            await msg.delete()
             return
-        cache = channel_cache(req.chat).id
-        for mid in req.message_ids:
-            cache[mid] = None
-        channel = self._get_channel(req.chat)
-        for mid in req.message_ids:
-            try:
-                msg = await channel.fetch_message(mid)
-                await msg.delete()
-            except (discord.NotFound, discord.Forbidden):
-                pass
 
-    async def resolve_channel_id(self, channel_id: str) -> int:
+        to_delete = []
+        for m_id in req.message_ids:
+            msg = await channel.fetch_message(m_id)
+            to_delete.append(msg)
+        await channel.delete_messages(to_delete)
+
+    async def edit_message_text(self, req: EditMessageTextReq) -> MessageResp:
+        channel_id = self._parse_channel_id(req.channel_id)
+        channel = self._get_channel(channel_id)
+        msg = await channel.fetch_message(req.message_id)
+        await msg.edit(content=req.text)
+        return MessageResp(message_id=msg.id)
+
+    async def edit_message_media(self, req: EditMessageMediaReq) -> MessageResp:
+        channel_id = self._parse_channel_id(req.channel_id)
+        channel = self._get_channel(channel_id)
+        msg = await channel.fetch_message(req.message_id)
+        f = discord.File(io.BytesIO(req.buffer), filename=req.name)
+        await msg.edit(attachments=[f])
+        return MessageResp(message_id=msg.id)
+
+    async def download_file(self, req: DownloadFileReq) -> DownloadFileResp:
+        channel_id = self._parse_channel_id(req.channel_id)
+        channel = self._get_channel(channel_id)
+        msg = await channel.fetch_message(req.message_id)
+        if not msg.attachments:
+            raise UnDownloadableMessage()
+        attachment = msg.attachments[0]
+        
+        session = await self._ensure_http_session()
+        
+        async def _chunk_generator():
+            async with session.get(attachment.url) as response:
+                current_pos = 0
+                async for chunk in response.content.iter_chunked(CHUNK_SIZE):
+                    chunk_len = len(chunk)
+                    if req.part_begin <= current_pos + chunk_len and (req.part_end == -1 or current_pos <= req.part_end):
+                        b_in_chunk = max(0, req.part_begin - current_pos)
+                        if req.part_end == -1:
+                            e_in_chunk = chunk_len
+                        else:
+                            e_in_chunk = min(chunk_len, req.part_end - current_pos + 1)
+                        yield chunk[b_in_chunk:e_in_chunk]
+                    current_pos += chunk_len
+
+        return DownloadFileResp(chunks=_chunk_generator())
+
+    async def search_message(self, req: SearchMessageReq) -> GetMessagesRespNoNone:
+        channel_id = self._parse_channel_id(req.channel_id)
+        channel = self._get_channel(channel_id)
+        matched_messages = []
+        async for message in channel.history(limit=100):
+            if message.content and req.query in message.content:
+                matched_messages.append(self._to_message_dto(message))
+            elif message.attachments and any(req.query in att.filename for att in message.attachments):
+                matched_messages.append(self._to_message_dto(message))
+        return GetMessagesRespNoNone(messages=matched_messages)
+
+    def _to_message_dto(self, message: discord.Message) -> Message:
+        doc = None
+        if message.attachments:
+            att = message.attachments[0]
+            doc = Document(name=att.filename, size=att.size)
+        return Message(
+            message_id=message.id,
+            text=message.content if message.content else None,
+            document=doc
+        )
+
+    def _parse_channel_id(self, channel_id: str) -> int:
         try:
             return int(channel_id)
         except ValueError:
@@ -251,7 +182,7 @@ class DiscordBotAPI(IDiscordClient):
             raise TechnicalError("Bot user not found")
         return GetMeResp(
             name=user.name,
-            is_premium=False,  # Discord doesn't have a premium concept for bots
+            is_premium=False,
         )
 
     async def close(self) -> None:
@@ -269,24 +200,19 @@ async def login_as_bot(config: Config) -> discord.Client:
 
     bot = discord.Client(intents=intents)
 
-    # Store bot reference for later use
     asyncio.get_event_loop()._discord_bot = bot  # type: ignore
 
     @bot.event
     async def on_ready():
-        logger.info(f"Logged in as {bot.user} (ID: {bot.user.id})")
+        if bot.user is not None:
+            logger.info(f"Logged in as {bot.user} (ID: {bot.user.id})")
 
-    # Login first (HTTP), then start the websocket connection in the background
     await bot.login(token)
     asyncio.create_task(bot.connect())
-
-    # Wait for the bot to be ready
     await bot.wait_until_ready()
 
     return bot
 
 
 async def login_as_bots(config: Config) -> List[discord.Client]:
-    """Login with a single Discord bot (Discord only supports one bot connection)."""
-    bot = await login_as_bot(config)
-    return [bot]
+    return [await login_as_bot(config)]

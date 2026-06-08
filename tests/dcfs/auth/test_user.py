@@ -1,4 +1,4 @@
-from dcfs.auth.user import User, ReadonlyUser, AdminUser
+from dcfs.auth.user import AdminUser, ReadonlyUser, User
 
 
 class TestUser:

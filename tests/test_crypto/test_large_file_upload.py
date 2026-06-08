@@ -21,15 +21,16 @@ from __future__ import annotations
 
 import datetime
 import os
-from dataclasses import dataclass, field
-from typing import List
+from dataclasses import dataclass
 
 import pytest
 
+from dcfs.core.model import DCFSFileVersion
+from dcfs.core.repository.impl.file_content import PART_SIZE
 from dcfs.core.repository.impl.file_content.file_uploader import (
     DISCORD_MAX_FILE_SIZE,
 )
-from dcfs.core.repository.impl.file_content import PART_SIZE
+from dcfs.core.repository.interface import IFileContentRepository
 from dcfs.crypto.cipher import CHUNK_OVERHEAD
 from dcfs.crypto.header import HEADER_SIZE
 from dcfs.crypto.repository import EncryptingFileContentRepository
@@ -40,9 +41,6 @@ from dcfs.reqres import (
     SentFileMessage,
     UploadableFileMessage,
 )
-from dcfs.core.model import DCFSFileVersion
-from dcfs.core.repository.interface import IFileContentRepository
-
 
 # ---------------------------------------------------------------------------
 # Minimal in-memory backend that records per-part ciphertext sizes
@@ -267,7 +265,7 @@ async def test_header_present_in_first_part():
     """The DCFS encryption header must appear at byte 0 of part 1."""
     plaintext = os.urandom(5 * 1024 * 1024)  # 5 MB (single part)
 
-    from dcfs.crypto.header import FileHeader, MAGIC
+    from dcfs.crypto.header import MAGIC, FileHeader
     from dcfs.crypto.kdf import derive_file_key
 
     header = FileHeader.new(chunk_size=CHUNK_SIZE)

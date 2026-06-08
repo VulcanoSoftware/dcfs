@@ -1,6 +1,8 @@
 import pytest
+
 from asgidav.folder import Folder
 from asgidav.member import ResourceType
+
 from .common import MockFolder, MockResource
 
 

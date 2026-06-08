@@ -1,4 +1,5 @@
-from typing import AsyncIterator, Mapping, Optional, Tuple, Dict
+from typing import AsyncIterator, Dict, Mapping, Optional, Tuple
+
 from asgidav.folder import Folder
 from asgidav.member import Member
 from asgidav.resource import Resource

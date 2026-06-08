@@ -1,5 +1,6 @@
 import pytest
-from main import create_clients, run_server, main
+
+from main import create_clients, main, run_server
 
 
 class TestMain:

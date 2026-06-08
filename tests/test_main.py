@@ -46,6 +46,7 @@ class TestMain:
             mock_metadata_cfg,
             mock_discord_api,
             encryption_cfg=mock_config.dcfs.encryption,
+            download_max_concurrent_parts=mock_config.dcfs.download.download_max_concurrent_parts,
         )
         assert result == {"test_client": mock_client}
 

@@ -102,6 +102,12 @@ class MessageApi(MessageBroker):
             PinMessageReq(chat=self.private_file_channel, message_id=message_id)
         )
 
+    async def get_pinned_messages(self) -> list[MessageResp]:
+        self.__try_acquire("MessageApi.get_pinned_messages")
+        return await self.discord_api.next_bot.get_pinned_messages(
+            GetPinnedMessageReq(chat=self.private_file_channel)
+        )
+
     async def search_messages(self, search: str) -> list[MessageResp]:
         self.__try_acquire("MessageApi.search_messages")
         bot = self.discord_api.next_bot

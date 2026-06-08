@@ -1,14 +1,13 @@
-import asyncio
 import io
 import logging
 
+from dcfs.discord.interface import IDiscordClient
 from dcfs.errors import FileSizeTooLarge, TechnicalError
 from dcfs.reqres import (
     SendFileReq,
     SendMessageResp,
     UploadableFileMessage,
 )
-from dcfs.discord.interface import IDiscordClient
 
 logger = logging.getLogger(__name__)
 

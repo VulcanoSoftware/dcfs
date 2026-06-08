@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Generator, List, AsyncIterator, Optional
+from typing import AsyncIterator, Generator, List, Optional
 
 from dcfs.core.api import MessageApi
 from dcfs.core.model import DCFSFileVersion
@@ -8,13 +8,11 @@ from dcfs.core.repository.interface import IFileContentRepository
 from dcfs.errors import TechnicalError, TransientUploadError
 from dcfs.reqres import (
     EditMessageMediaReq,
-    FileContent,
-    FileMessageFromBuffer,
     SentFileMessage,
     UploadableFileMessage,
 )
 
-from .file_uploader import FileUploader, DISCORD_MAX_FILE_SIZE
+from .file_uploader import DISCORD_MAX_FILE_SIZE, FileUploader
 
 logger = logging.getLogger(__name__)
 PART_SIZE = DISCORD_MAX_FILE_SIZE

@@ -1,13 +1,13 @@
 import asyncio
 import io
 import logging
-import os
-from typing import List, Optional, Sequence, Any
+from typing import Any, List, Optional
 
 import aiohttp
 import discord
 
 from dcfs.config import Config
+from dcfs.discord.interface import IDiscordClient
 from dcfs.errors import TechnicalError, UnDownloadableMessage
 from dcfs.reqres import (
     DeleteMessagesReq,
@@ -29,8 +29,6 @@ from dcfs.reqres import (
     SendMessageResp,
     SendTextReq,
 )
-from dcfs.discord.interface import IDiscordClient
-from dcfs.utils.others import exclude_none
 
 logger = logging.getLogger(__name__)
 

@@ -2,7 +2,7 @@ import os
 from collections import deque
 from dataclasses import dataclass, field
 from io import IOBase
-from typing import AsyncIterator, List, Optional, Tuple
+from typing import AsyncIterator, Optional, Tuple
 
 from dcfs.tasks.integrations import TaskTracker
 

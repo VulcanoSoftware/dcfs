@@ -1,7 +1,5 @@
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Union
-
-from dcfs.core.model import DCFSDirectory, DCFSFileRef
+from typing import Any, Dict, List, Optional
 
 CacheItem = Any
 

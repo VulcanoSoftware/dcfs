@@ -74,7 +74,8 @@ class DCMsgMetadataRepository(IMetaDataRepository):
         except NoPinnedMessage:
             pinned_message = await self.new_metadata()
 
-        assert pinned_message.document is not None
+        if pinned_message.document is None:
+            raise NoPinnedMessage()
         temp_fv = DCFSFileVersion.from_sent_file_message(
             SentFileMessage(pinned_message.message_id, pinned_message.document.size)
         )

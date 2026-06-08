@@ -127,7 +127,6 @@ export default function ConfigGenerator() {
       },
       encryption: {
         enabled: false,
-        encrypt_names: false,
         passphrase_source: "passphrase_env",
         passphrase: "",
         passphrase_env: "DCFS_MASTER_PASSPHRASE",
@@ -233,7 +232,6 @@ export default function ConfigGenerator() {
           const enc = config.dcfs.encryption;
           const block: {
             enabled: boolean;
-            encrypt_names: boolean;
             passphrase?: string;
             passphrase_env?: string;
             passphrase_file?: string;
@@ -241,7 +239,6 @@ export default function ConfigGenerator() {
             chunk_size: number;
           } = {
             enabled: enc.enabled,
-            encrypt_names: enc.encrypt_names,
             master_salt_file: enc.master_salt_file,
             chunk_size: enc.chunk_size,
           };

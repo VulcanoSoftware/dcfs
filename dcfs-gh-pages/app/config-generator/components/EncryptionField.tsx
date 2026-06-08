@@ -20,7 +20,6 @@ export type PassphraseSource = "passphrase" | "passphrase_env" | "passphrase_fil
 
 export interface EncryptionConfig {
   enabled: boolean;
-  encrypt_names: boolean;
   passphrase_source: PassphraseSource;
   passphrase: string;
   passphrase_env: string;
@@ -137,7 +136,7 @@ export function EncryptionField({ config, onUpdate }: EncryptionFieldProps) {
                 onChange={(e) => onUpdate("passphrase_env", e.target.value)}
                 fullWidth
                 required
-                helperText='dcfs reads this env var at startup. e.g. "dcfs_MASTER_PASSPHRASE"'
+                helperText='dcfs reads this env var at startup. e.g. "DCFS_MASTER_PASSPHRASE"'
               />
             </Box>
           )}
@@ -150,7 +149,7 @@ export function EncryptionField({ config, onUpdate }: EncryptionFieldProps) {
                 onChange={(e) => onUpdate("passphrase_file", e.target.value)}
                 fullWidth
                 required
-                helperText="Path is relative to dcfs_DATA_DIR (~/.dcfs by default). Trailing newline is stripped."
+                helperText="Path is relative to DCFS_DATA_DIR (~/.dcfs by default). Trailing newline is stripped."
               />
             </Box>
           )}
@@ -169,7 +168,7 @@ export function EncryptionField({ config, onUpdate }: EncryptionFieldProps) {
             onChange={(e) => onUpdate("master_salt_file", e.target.value)}
             fullWidth
             sx={{ mb: 3 }}
-            helperText="Path relative to dcfs_DATA_DIR. Default: master.salt"
+            helperText="Path relative to DCFS_DATA_DIR. Default: master.salt"
           />
 
           <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600 }}>
@@ -190,42 +189,6 @@ export function EncryptionField({ config, onUpdate }: EncryptionFieldProps) {
             width={220}
             helperText="Default: 65536 (64 KiB). Max: 16 MiB."
           />
-
-          <Typography variant="subtitle1" sx={{ mt: 3, mb: 1, fontWeight: 600 }}>
-            Filename Encryption (Optional)
-          </Typography>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={config.encrypt_names}
-                onChange={(e) => onUpdate("encrypt_names", e.target.checked)}
-              />
-            }
-            label={
-              <Box>
-                <Typography variant="body1">
-                  Encrypt Discord-visible document names
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Replaces every uploaded document name -- including the
-                  pinned metadata blob -- with an AES-GCM ciphertext token
-                  (<code>dcfs1_&lt;base64url&gt;</code>). A passive observer of
-                  the channel cannot read file or directory names from the
-                  document metadata. Plaintext names remain inside the
-                  (also encrypted) metadata.json, so WebDAV and the manager
-                  UI are unaffected.
-                </Typography>
-              </Box>
-            }
-            sx={{ alignItems: "flex-start", mb: 1 }}
-          />
-          {config.encrypt_names && (
-            <Alert severity="info" sx={{ mt: 1, mb: 2 }}>
-              Only <b>new uploads</b> are affected. Files that were already in
-              the channel keep their original Discord document name -- enabling
-              this later does not rewrite existing parts.
-            </Alert>
-          )}
 
           <Alert severity="info" sx={{ mt: 3 }}>
             <AlertTitle>How it works</AlertTitle>

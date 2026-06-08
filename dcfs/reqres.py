@@ -1,4 +1,5 @@
 import os
+from collections import deque
 from dataclasses import dataclass, field
 from io import IOBase
 from typing import AsyncIterator, List, Optional, Tuple
@@ -234,8 +235,8 @@ class FileMessageFromBuffer(UploadableFileMessage):
 @dataclass
 class FileMessageFromStream(UploadableFileMessage):
     stream: FileContent
-    cached_chunks: List[bytes] = field(default_factory=list)
-    cached_size = 0
+    cached_chunks: deque[bytes] = field(default_factory=deque)
+    cached_size: int = 0
 
     @classmethod
     def new(
@@ -257,17 +258,40 @@ class FileMessageFromStream(UploadableFileMessage):
 
     async def read(self, length: int) -> bytes:
         size_to_return = min(length, self.get_size() - self._read_size)
+        if size_to_return <= 0:
+            return b""
+
         while self.cached_size < size_to_return:
-            chunk = await anext(self.stream)
+            try:
+                chunk = await anext(self.stream)
+            except StopAsyncIteration:
+                break
+            if not chunk:
+                continue
             self.cached_chunks.append(chunk)
             self.cached_size += len(chunk)
 
-        joined = b"".join(self.cached_chunks)
-        res = joined[:size_to_return]
-        self.cached_chunks = [joined[size_to_return:]]
-        self.cached_size -= size_to_return
-        self._read_size += size_to_return
-        return res
+        if self.cached_size <= 0:
+            return b""
+
+        size_to_return = min(size_to_return, self.cached_size)
+        out = bytearray()
+        remaining = size_to_return
+
+        while remaining > 0 and self.cached_chunks:
+            chunk = self.cached_chunks.popleft()
+            if len(chunk) <= remaining:
+                out.extend(chunk)
+                remaining -= len(chunk)
+                self.cached_size -= len(chunk)
+            else:
+                out.extend(chunk[:remaining])
+                self.cached_chunks.appendleft(chunk[remaining:])
+                self.cached_size -= remaining
+                remaining = 0
+
+        self._read_size += len(out)
+        return bytes(out)
 
 
 @dataclass

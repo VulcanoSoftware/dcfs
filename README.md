@@ -2,7 +2,7 @@
   <h1 align="center">dcfs</h1>
 </p>
 
-[![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)](https://hub.docker.com/r/wheatcarrier/dcfs)
+[![Docker](https://img.shields.io/badge/docker-ghcr.io-blue?style=for-the-badge&logo=docker&logoColor=white)](https://github.com/VulcanoSoftware/dcfs/pkgs/container/dcfs)
 [![GitHub Pages](https://img.shields.io/badge/GitHub%20Pages-Live-blue?style=for-the-badge&logo=github)](https://vulcanosoftware.github.io/dcfs)
 
 # dcfs
@@ -37,17 +37,25 @@ discord:
   delete_messages_on_remove: false
 dcfs:
   users:
+    user:
+      password: password
+      readonly: false
   download:
     chunk_size_kb: 1024
+    download_max_concurrent_parts: 3
   jwt:
     secret: your-secret-key
     algorithm: HS256
     life: 604800
   metadata:
-    type: pinned_message
+    CHANNEL_ID_1:
+      name: default
+      type: pinned_message
   server:
     host: 0.0.0.0
     port: 1900
+  encryption:
+    enabled: false
 ```
 
 ### Setting up a Discord Bot
@@ -104,6 +112,16 @@ Run the app:
 ```bash
 poetry run python main.py
 ```
+
+## Docker
+
+The Docker image is published to GitHub Container Registry:
+
+```bash
+docker run --pull=always -it -p 1900:1900 -v /path/to/.dcfs:/home/dcfs/.dcfs ghcr.io/vulcanosoftware/dcfs:latest
+```
+
+Put your `config.yaml` in the mounted `.dcfs` directory (`/path/to/.dcfs/config.yaml`).
 
 Typecheck && lint:
 ```bash

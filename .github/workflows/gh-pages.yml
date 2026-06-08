@@ -2,7 +2,7 @@ name: Deploy Next.js to GitHub Pages
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "master" ]
   workflow_dispatch:
 
 permissions:
@@ -19,10 +19,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: 'npm'
@@ -34,7 +34,7 @@ jobs:
           static_site_generator: next
 
       - name: Restore cache
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: |
             ./dcfs-gh-pages/.next/cache

@@ -21,7 +21,7 @@ export default function GettingStarted() {
   const [pathStyle, setPathStyle] = useState<"unix" | "windows">("unix");
   const [dockerConfig, setDockerConfig] = useState({
     dcfsPort: 1900,
-    mountedVolume: "/home/user/.dcfs",
+    dcfsDataDir: "/home/user/.dcfs",
   });
 
   // Auto-detect OS and set default path style
@@ -34,7 +34,7 @@ export default function GettingStarted() {
       // Set default path based on OS
       setDockerConfig((prev) => ({
         ...prev,
-        mountedVolume: isWindows
+        dcfsDataDir: isWindows
           ? "C:\\Users\\user\\.dcfs"
           : "/home/user/.dcfs",
       }));
@@ -227,7 +227,7 @@ export default function GettingStarted() {
               </StepLabel>
               <StepContent>
                 <Typography className="text-slate-300" sx={{ marginBottom: 3 }}>
-                  Configure the Docker settings for running dcfs:
+                  Run dcfs with Docker (recommended):
                 </Typography>
 
                 <Box
@@ -251,12 +251,12 @@ export default function GettingStarted() {
                       }
                     />
                     <TextField
-                      label="Path of config.yaml"
-                      value={dockerConfig.mountedVolume}
+                      label="Path of .dcfs directory"
+                      value={dockerConfig.dcfsDataDir}
                       onChange={(e) =>
                         setDockerConfig((prev) => ({
                           ...prev,
-                          mountedVolume: e.target.value,
+                          dcfsDataDir: e.target.value,
                         }))
                       }
                       slotProps={{
@@ -286,7 +286,7 @@ export default function GettingStarted() {
                           setPathStyle(newStyle);
                           setDockerConfig((prev) => ({
                             ...prev,
-                            mountedVolume:
+                            dcfsDataDir:
                               newStyle === "windows"
                                 ? "C:\\Users\\user\\.dcfs"
                                 : "/home/user/.dcfs",
@@ -305,11 +305,21 @@ export default function GettingStarted() {
                   style={{ marginBottom: "24px" }}
                 >
                   <code className="text-sm text-slate-300 block break-all">
-                    docker run -it -v {dockerConfig.mountedVolume}
-                    :/home/dcfs/.dcfs -p {dockerConfig.dcfsPort}:
-                    {dockerConfig.dcfsPort} wheatcarrier/dcfs
+                    docker run --pull=always -it -p {dockerConfig.dcfsPort}:1900 -v{" "}
+                    {pathStyle === "windows"
+                      ? `"${dockerConfig.dcfsDataDir}:/home/dcfs/.dcfs"`
+                      : `${dockerConfig.dcfsDataDir}:/home/dcfs/.dcfs`}{" "}
+                    ghcr.io/vulcanosoftware/dcfs:latest
                   </code>
                 </div>
+                <Typography className="text-slate-300" sx={{ marginBottom: 3 }}>
+                  Put your <code>config.yaml</code> in the mounted directory:{" "}
+                  <code>
+                    {pathStyle === "windows"
+                      ? `${dockerConfig.dcfsDataDir}\\config.yaml`
+                      : `${dockerConfig.dcfsDataDir}/config.yaml`}
+                  </code>
+                </Typography>
 
                 <div style={{ marginTop: "24px" }}>
                   <Button

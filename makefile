@@ -16,4 +16,4 @@ cov:
 
 build-push:
 	@echo "Building the package..."
-	@docker buildx build --platform linux/amd64,linux/arm64 . -t wheatcarrier/dcfs --push
+	@docker buildx build --platform linux/amd64,linux/arm64 . -t ghcr.io/vulcanosoftware/dcfs:latest --push

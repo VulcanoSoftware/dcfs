@@ -45,7 +45,7 @@ USER dcfs
 # Expose WebDAV port
 EXPOSE 1900
 
-ENV DATA_DIR=/home/dcfs/.dcfs
+ENV DCFS_DATA_DIR=/home/dcfs/.dcfs
 
 # Run the application
 CMD ["python", "main.py"]

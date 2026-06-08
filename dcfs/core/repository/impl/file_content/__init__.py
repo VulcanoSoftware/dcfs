@@ -14,9 +14,10 @@ from dcfs.reqres import (
     UploadableFileMessage,
 )
 
-from .file_uploader import FileUploader
+from .file_uploader import FileUploader, DISCORD_MAX_FILE_SIZE
 
 logger = logging.getLogger(__name__)
+PART_SIZE = DISCORD_MAX_FILE_SIZE
 RETRY_INTERVAL = 5  # seconds
 MAX_RETRIES = 10
 
@@ -46,7 +47,7 @@ def _is_transient(ex: Exception) -> bool:
     return False
 
 
-class DCMessageFileContentRepository(IFileContentRepository):
+class DCMsgFileContentRepository(IFileContentRepository):
     def __init__(self, message_api: MessageApi, max_concurrent_parts: int = 3):
         self._message_api = message_api
         self._download_semaphore = asyncio.Semaphore(max_concurrent_parts)

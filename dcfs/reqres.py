@@ -29,11 +29,12 @@ class GetMessagesReq(Chat):
 
 @dataclass
 class Document:
+    name: str
     size: int
-    id: int
-    access_hash: int
-    file_reference: bytes
-    mime_type: Optional[str]
+    id: Optional[int] = None
+    access_hash: Optional[int] = None
+    file_reference: Optional[bytes] = None
+    mime_type: Optional[str] = None
 
 
 @dataclass

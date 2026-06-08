@@ -56,4 +56,4 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ env.REPO_LOWER }}${{ matrix.image_suffix }}:latest
-            ghcr.io/${{ env.REPO_LOWER }}${{ matrix.image_suffix }}:${{ github.event.workflow_run.head_commit.sha }}
+            ghcr.io/${{ env.REPO_LOWER }}${{ matrix.image_suffix }}:${{ github.sha }}

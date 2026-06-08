@@ -61,19 +61,20 @@ class DCMsgMetadataRepository(IMetaDataRepository):
         self._message_id = None
         await self.push()
         pinned_messages = await self._message_api.get_pinned_messages()
-        if not pinned_messages.messages:
+        if not pinned_messages:
             raise NoPinnedMessage()
-        return pinned_messages.messages[0]
+        return pinned_messages[0]  # type: ignore
 
     async def get(self) -> DCFSMetadata:
         try:
             pinned_messages = await self._message_api.get_pinned_messages()
-            if not pinned_messages.messages:
+            if not pinned_messages:
                 raise NoPinnedMessage()
-            pinned_message = pinned_messages.messages[0]
+            pinned_message = pinned_messages[0]
         except NoPinnedMessage:
             pinned_message = await self.new_metadata()
 
+        assert pinned_message.document is not None
         temp_fv = DCFSFileVersion.from_sent_file_message(
             SentFileMessage(pinned_message.message_id, pinned_message.document.size)
         )

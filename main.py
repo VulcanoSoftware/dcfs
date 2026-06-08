@@ -5,13 +5,6 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-try:
-    import uvloop  # type: ignore[import]
-
-    uvloop.install()
-except ImportError:
-    logging.warning("uvloop is not installed, using default event loop")
-
 from uvicorn.config import Config as UvicornConfig
 from uvicorn.server import Server
 
@@ -68,6 +61,10 @@ async def main():
 
 
 if __name__ == "__main__":
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(main())
+    try:
+        import uvloop  # type: ignore[import]
+
+        uvloop.run(main())
+    except ImportError:
+        logging.warning("uvloop is not installed, using default event loop")
+        asyncio.run(main())

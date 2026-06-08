@@ -1,6 +1,7 @@
 from typing import Optional
-from dcfs.app.fs_cache import FSCache, gfc
+
 from asgidav.member import Member
+from dcfs.app.fs_cache import FSCache, gfc
 
 
 class MockMember(Member):

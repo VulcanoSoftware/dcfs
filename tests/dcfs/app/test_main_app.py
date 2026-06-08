@@ -1,6 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
-from dcfs.app import create_app, cors, READONLY_METHODS
+
+from dcfs.app import READONLY_METHODS, cors, create_app
 from dcfs.config import Config
 from dcfs.core.client import Client
 

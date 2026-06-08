@@ -1,8 +1,10 @@
-import pytest
 import asyncio
 import datetime
-from dcfs.tasks.task_store import TaskStore, utcnow
+
+import pytest
+
 from dcfs.tasks.models import TaskStatus, TaskType
+from dcfs.tasks.task_store import TaskStore, utcnow
 
 
 class TestUtcNow:

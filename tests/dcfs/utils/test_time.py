@@ -3,7 +3,7 @@ import datetime
 
 class TestTimestamp:
     def test_ts_epoch(self):
-        from dcfs.utils.time import ts, FIRST_DAY_OF_EPOCH
+        from dcfs.utils.time import FIRST_DAY_OF_EPOCH, ts
 
         result = ts(FIRST_DAY_OF_EPOCH)
         assert result == 0

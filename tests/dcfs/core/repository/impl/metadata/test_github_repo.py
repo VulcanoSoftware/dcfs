@@ -1,9 +1,10 @@
-import pytest
-from unittest.mock import Mock, MagicMock, patch
 from typing import List
+from unittest.mock import Mock, patch
+
+import pytest
 from github import Github
-from github.Repository import Repository
 from github.ContentFile import ContentFile
+from github.Repository import Repository
 
 from dcfs.config import GithubRepoConfig
 from dcfs.core.model import DCFSDirectory, DCFSFileRef, DCFSMetadata

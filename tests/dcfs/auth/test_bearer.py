@@ -1,7 +1,9 @@
-import pytest
 import time
+
 import jwt
-from dcfs.auth.bearer import login, authenticate, JWTPayload
+import pytest
+
+from dcfs.auth.bearer import JWTPayload, authenticate, login
 from dcfs.auth.user import AdminUser, ReadonlyUser
 from dcfs.errors import LoginFailed
 

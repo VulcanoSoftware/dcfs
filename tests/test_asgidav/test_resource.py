@@ -1,5 +1,7 @@
-import pytest
 from typing import AsyncIterator
+
+import pytest
+
 from .common import MockResource as _MockResource
 
 

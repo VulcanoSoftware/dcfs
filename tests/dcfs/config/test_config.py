@@ -1,16 +1,17 @@
 import pytest
+
 from dcfs.config import (
-    DownloadConfig,
-    UserConfig,
-    JWTConfig,
-    ServerConfig,
+    Config,
     DCFSConfig,
     DiscordConfig,
-    Config,
+    DownloadConfig,
     GithubRepoConfig,
+    JWTConfig,
     MetadataConfig,
-    MetadataType,
     MetadataConfigDict,
+    MetadataType,
+    ServerConfig,
+    UserConfig,
 )
 
 

@@ -1,9 +1,10 @@
-import pytest
 import os
 
-from dcfs.core.ops import Ops
+import pytest
+
 from dcfs.core.client import Client
-from dcfs.core.model import DCFSDirectory, DCFSFileRef, DCFSFileDesc
+from dcfs.core.model import DCFSDirectory, DCFSFileDesc, DCFSFileRef
+from dcfs.core.ops import Ops
 from dcfs.errors import FileOrDirectoryDoesNotExist, InvalidPath
 from dcfs.reqres import MessageRespWithDocument
 
@@ -94,10 +95,9 @@ class TestOps:
         def find_dir_side_effect(name):
             if name == "dir1":
                 return mock_subdir1
-            elif name == "dir2":
+            if name == "dir2":
                 return mock_subdir2
-            else:
-                raise FileOrDirectoryDoesNotExist(name)
+            raise FileOrDirectoryDoesNotExist(name)
 
         mock_root_directory.find_dir.side_effect = find_dir_side_effect
         mock_subdir1.find_dir.side_effect = find_dir_side_effect

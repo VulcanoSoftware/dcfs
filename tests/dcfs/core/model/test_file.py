@@ -1,18 +1,19 @@
-import pytest
 import datetime
 import json
 from unittest.mock import Mock, patch
 
+import pytest
+
 from dcfs.core.model.file import (
-    DCFSFileVersion,
-    DCFSFileDesc,
     EMPTY_FILE_MESSAGE,
     INVALID_FILE_SIZE,
     INVALID_VERSION_ID,
+    DCFSFileDesc,
+    DCFSFileVersion,
 )
+from dcfs.errors import InvalidName
 from dcfs.reqres import SentFileMessage
 from dcfs.utils.time import FIRST_DAY_OF_EPOCH, ts
-from dcfs.errors import InvalidName
 
 
 class TestDCFSFileVersion:

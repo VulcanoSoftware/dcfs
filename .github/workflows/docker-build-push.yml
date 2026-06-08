@@ -29,6 +29,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         
+      - name: Set lowercase repository
+        run: echo "REPO_LOWER=${{ github.repository | lower }}" >> $GITHUB_ENV
+
       - name: Set up Docker
         uses: docker/setup-docker-action@v4
         with:
@@ -58,5 +61,5 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}${{ matrix.image_suffix }}:latest
-            ghcr.io/${{ github.repository }}${{ matrix.image_suffix }}:${{ github.sha }}
+            ghcr.io/${{ env.REPO_LOWER }}${{ matrix.image_suffix }}:latest
+            ghcr.io/${{ env.REPO_LOWER }}${{ matrix.image_suffix }}:${{ github.sha }}

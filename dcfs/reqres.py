@@ -147,7 +147,7 @@ class UploadableFileMessage(FileMessage):
         return self.size or self._get_size()
 
     async def open(self) -> None:
-        pass
+        self._read_size = 0
 
     async def read(self, length: int) -> bytes:
         raise NotImplementedError("Subclasses must implement the read method")
@@ -192,8 +192,18 @@ class FileMessageFromPath(UploadableFileMessage):
             _fd=open(path, "rb"),
         )
 
+    async def open(self) -> None:
+        await super().open()
+        if self._fd:
+            self._fd.seek(self._offset)
+
     async def read(self, length: int) -> bytes:
-        return self._fd.read(length)
+        size_to_read = min(length, self.size - self._read_size)
+        if size_to_read <= 0:
+            return b""
+        chunk = self._fd.read(size_to_read)
+        self._read_size += len(chunk)
+        return chunk
 
     async def close(self) -> None:
         if self._fd:
@@ -225,11 +235,16 @@ class FileMessageFromBuffer(UploadableFileMessage):
         )
 
     async def open(self) -> None:
+        await super().open()
         self.__buffer = self.buffer[self._offset :]
 
     async def read(self, length: int) -> bytes:
-        chunk = self.__buffer[:length]
-        self.__buffer = self.__buffer[length:]
+        size_to_read = min(length, self.size - self._read_size)
+        if size_to_read <= 0:
+            return b""
+        chunk = self.__buffer[:size_to_read]
+        self.__buffer = self.__buffer[size_to_read:]
+        self._read_size += len(chunk)
         return chunk
 
 

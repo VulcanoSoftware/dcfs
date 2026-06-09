@@ -12,7 +12,7 @@ from dcfs.reqres import (
 logger = logging.getLogger(__name__)
 
 # Discord file size limits
-DISCORD_MAX_FILE_SIZE = 8 * 1024 * 1024  # 8 MB for unboosted Discord servers
+DISCORD_MAX_FILE_SIZE = 25 * 1024 * 1024  # 25 MB for Discord servers
 
 
 class FileUploader:
@@ -42,6 +42,7 @@ class FileUploader:
             logger.warning(f"Upload cancelled for {self._file_name}")
             return 0
 
+        await self._file_msg.open()
         self._buffer = io.BytesIO()
         while True:
             chunk = await self._file_msg.read(1024 * 1024)

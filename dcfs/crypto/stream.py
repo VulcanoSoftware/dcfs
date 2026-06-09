@@ -54,6 +54,12 @@ class EncryptingFileMessage(UploadableFileMessage):
     _plaintext_read: int = field(default=0, init=False, repr=False)
     _header_emitted: bool = field(default=False, init=False, repr=False)
 
+    # State at the beginning of the current part (for multi-part retries).
+    _part_start_pending: bytes = field(default=b"", init=False, repr=False)
+    _part_start_chunk_index: int = field(default=0, init=False, repr=False)
+    _part_start_plaintext_read: int = field(default=0, init=False, repr=False)
+    _part_start_header_emitted: bool = field(default=False, init=False, repr=False)
+
     @classmethod
     def wrap(
         cls,
@@ -104,7 +110,16 @@ class EncryptingFileMessage(UploadableFileMessage):
         return self.size
 
     async def open(self) -> None:
+        # Restore state to the start of the current part (handles retries).
+        self._pending = self._part_start_pending
+        self._chunk_index = self._part_start_chunk_index
+        self._plaintext_read = self._part_start_plaintext_read
+        self._header_emitted = self._part_start_header_emitted
+
+        # Synchronize inner message offset with our plaintext tracking.
+        self.inner._offset = self._part_start_plaintext_read
         await self.inner.open()
+
         # Prepend the header to the pending buffer; it is emitted before any
         # ciphertext chunk.
         if not self._header_emitted:
@@ -113,6 +128,14 @@ class EncryptingFileMessage(UploadableFileMessage):
 
     async def close(self) -> None:
         await self.inner.close()
+
+    def next_part(self, part_size: int) -> None:
+        """Capture the current state as the start of the next part."""
+        self._part_start_pending = self._pending
+        self._part_start_chunk_index = self._chunk_index
+        self._part_start_plaintext_read = self._plaintext_read
+        self._part_start_header_emitted = self._header_emitted
+        super().next_part(part_size)
 
     async def read(self, length: int) -> bytes:
         """Return up to ``length`` ciphertext bytes.

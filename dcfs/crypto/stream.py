@@ -54,6 +54,15 @@ class EncryptingFileMessage(UploadableFileMessage):
     _plaintext_read: int = field(default=0, init=False, repr=False)
     _header_emitted: bool = field(default=False, init=False, repr=False)
 
+    # Checkpoint state (set at the beginning of each Discord part). This
+    # allows DCMsgFileContentRepository to retry a failed part upload by
+    # calling open() again, which resets the streaming state to these
+    # known-good values.
+    _checkpoint_pending: bytes = field(default=b"", init=False, repr=False)
+    _checkpoint_chunk_index: int = field(default=0, init=False, repr=False)
+    _checkpoint_plaintext_read: int = field(default=0, init=False, repr=False)
+    _checkpoint_header_emitted: bool = field(default=False, init=False, repr=False)
+
     @classmethod
     def wrap(
         cls,
@@ -104,7 +113,17 @@ class EncryptingFileMessage(UploadableFileMessage):
         return self.size
 
     async def open(self) -> None:
+        await super().open()
+
+        # Restore state from the last known-good checkpoint. If this is the
+        # first part, these are the default zeros/empty values.
+        self._pending = self._checkpoint_pending
+        self._chunk_index = self._checkpoint_chunk_index
+        self._plaintext_read = self._checkpoint_plaintext_read
+        self._header_emitted = self._checkpoint_header_emitted
+
         await self.inner.open()
+
         # Prepend the header to the pending buffer; it is emitted before any
         # ciphertext chunk.
         if not self._header_emitted:
@@ -113,6 +132,19 @@ class EncryptingFileMessage(UploadableFileMessage):
 
     async def close(self) -> None:
         await self.inner.close()
+
+    def next_part(self, part_size: int) -> None:
+        """Advance the message to the next part, checkpointing current state."""
+        # Advance the inner plaintext message by the amount of plaintext
+        # consumed during this part.
+        plaintext_consumed = self._plaintext_read - self._checkpoint_plaintext_read
+        self.inner.next_part(plaintext_consumed)
+
+        super().next_part(part_size)
+        self._checkpoint_pending = self._pending
+        self._checkpoint_chunk_index = self._chunk_index
+        self._checkpoint_plaintext_read = self._plaintext_read
+        self._checkpoint_header_emitted = self._header_emitted
 
     async def read(self, length: int) -> bytes:
         """Return up to ``length`` ciphertext bytes.

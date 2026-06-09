@@ -23,14 +23,14 @@ def discord_max_file_size_bytes() -> int:
             if value > 0:
                 return value
         except Exception:
-            pass
+            logger.debug(f"Failed to parse DCFS_DISCORD_MAX_FILE_SIZE_BYTES: {raw}")
     try:
         config = get_config()
         value = int(getattr(config.discord, "max_file_size_bytes", 0) or 0)
         if value > 0:
             return value
     except Exception:
-        pass
+        logger.debug("Failed to get max_file_size_bytes from config, using default")
     return DEFAULT_DISCORD_MAX_FILE_SIZE
 
 

@@ -3,22 +3,24 @@ import pytest
 from dcfs.crypto.header import HEADER_SIZE
 from dcfs.crypto.repository import EncryptingFileContentRepository
 from dcfs.crypto.stream import EncryptingFileMessage
-from dcfs.reqres import FileMessageFromBuffer, SentFileMessage
+from dcfs.reqres import FileContent, FileMessageFromBuffer, SentFileMessage, UploadableFileMessage
 from dcfs.errors import TransientUploadError
+from dcfs.core.repository.interface import IFileContentRepository
+from dcfs.core.model import DCFSFileVersion
 
 # Reuse the same constants for consistency
 MASTER_KEY = b"\x77" * 32
 CHUNK_SIZE = 64 * 1024
 PART_SIZE = 1 * 1024 * 1024  # 1 MB parts for testing
 
-class FailingInMemoryRepo:
+class FailingInMemoryRepo(IFileContentRepository):
     """A repository that fails on the second part once, then succeeds."""
     def __init__(self):
         self.parts = {}
         self.fail_count = 0
         self.part_sizes_observed = []
 
-    async def save(self, file_msg: EncryptingFileMessage) -> list[SentFileMessage]:
+    async def save(self, file_msg: UploadableFileMessage) -> list[SentFileMessage]:
         size = file_msg.get_size()
         res = []
 
@@ -68,14 +70,19 @@ class FailingInMemoryRepo:
 
         return res
 
-    async def get(self, fv, begin, end, name):
+    async def get(self, fv: DCFSFileVersion, begin: int, end: int, name: str) -> FileContent:
         ciphertext = b"".join(self.parts.values())
         if end < 0:
             end = len(ciphertext) - 1
 
         async def stream():
-            yield ciphertext[begin:end+1]
+            yield ciphertext[begin : end + 1]
+
         return stream()
+
+    async def update(self, message_id: int, buffer: bytes, name: str) -> int:
+        self.parts[message_id] = buffer
+        return len(buffer)
 
 @pytest.mark.asyncio
 async def test_encrypted_upload_retry_consistency():

@@ -1,30 +1,29 @@
 discord:
-  bot_token: hidden
-  guild_id: 123456789012345678
+  bot_token: YOUR_BOT_TOKEN
+  guild_id: YOUR_GUILD_ID
   private_file_channel:
-    - '123456789012345678'
-  # When ``true``, removing a file (or directory) through DCFS also issues
-  # ``discord.delete_messages`` for every backing message in the channel:
-  # the JSON file-descriptor message and every content message of every
-  # version. Default is ``false`` -- metadata is updated but the original
-  # messages stay in the channel, matching historical behavior.
-  # The bot account must have the "Manage Messages" permission for this to succeed.
+    - CHANNEL_ID_1
   delete_messages_on_remove: false
 dcfs:
   users:
+    user:
+      password: password
+      readonly: false
   download:
     chunk_size_kb: 1024
     download_max_concurrent_parts: 3
   jwt:
-    secret: hidden
+    secret: your-secret-key
     algorithm: HS256
     life: 604800
   metadata:
-    type: github_repo
-    github_repo:
-      repo: 'dcfs-demo/dcfs-demo'
-      commit: 'master'
-      access_token: hidden
+    CHANNEL_ID_1:
+      name: default
+      type: github_repo
+      github_repo:
+        repo: owner/repo
+        commit: master
+        access_token: YOUR_GITHUB_TOKEN
   server:
     host: 0.0.0.0
     port: 1900

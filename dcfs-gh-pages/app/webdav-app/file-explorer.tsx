@@ -79,7 +79,7 @@ export default function FileExplorer({
         setItems(directoryItems);
         setCurrentPath(path);
 
-        // Also load tasks for this directory if task manager is available
+        // Also load background tasks for this directory if the manager API is available
         if (managerClient) {
           try {
             const directoryTasks = await managerClient.getTasksUnderPath(path);

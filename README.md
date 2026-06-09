@@ -7,7 +7,7 @@
 
 # dcfs
 
-Discord becomes a WebDAV server. A fork of TGFS that uses Discord as the backend instead of Telegram.
+Discord becomes a WebDAV server. This project originally started as a fork of [tgfs](https://github.com/TheodoreKrypton/tgfs), but has since diverged into an independent codebase with its own behavior and configuration.
 
 ## Features
 * Upload and download files to/from a private Discord channel via WebDAV
@@ -140,14 +140,9 @@ A Next.js-based web frontend is available at the [GitHub Pages site](https://vul
 
 * **Config Generator** — Interactive form to generate `config.yaml` files with validation
 * **Getting Started Guide** — Step-by-step wizard for setting up your Discord bot, channels, and server
-* **WebDAV App** — Built-in file explorer to browse, upload, download, and manage files via WebDAV
-* **Task Manager** — Real-time progress tracking for file uploads and imports
+* **WebDAV App** — Built-in file explorer to browse, upload, download, and manage files via WebDAV (optionally shows background tasks when the manager API is available)
 
 The frontend source code is in the `dcfs-gh-pages/` directory.
-
-## Demo Server
-* WebDAV URL: `https://dcfs-demo.wheatcarrier.site/webdav`
-* `username` and `password` can be any
 
 ## License
 

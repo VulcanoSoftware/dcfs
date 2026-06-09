@@ -6,8 +6,7 @@ This is the web frontend for [dcfs](https://github.com/VulcanoSoftware/dcfs) —
 
 - **Config Generator** — Interactive form to generate `config.yaml` with validation for channels, users, JWT, encryption
 - **Getting Started Guide** — Step-by-step wizard for setting up Discord bot, channels, and dcfs server
-- **WebDAV App** — Built-in file explorer with upload, download, delete, directory creation, and Discord message import
-- **Task Manager** — Real-time progress tracking for file uploads and imports
+- **WebDAV App** — Built-in file explorer with upload, download, delete, directory creation, Discord message import, and background task tracking (when the manager API is available)
 
 ## Development
 
@@ -25,7 +24,7 @@ The site is deployed to GitHub Pages on every push to `main`.
 app/
   config-generator/   # Config YAML generator page
   getting-started/    # Step-by-step setup guide
-  join-group/         # Discord support server link
+  join-group/         # Support links
   webdav-app/         # Built-in WebDAV file explorer
   layout.tsx          # Root layout with MUI ThemeProvider
   page.tsx            # Landing page

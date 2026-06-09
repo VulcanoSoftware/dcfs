@@ -6,3 +6,6 @@ CLAUDE.md
 dist/
 coverage.xml
 .coverage
+dcfs-gh-pages/.next/
+dcfs-gh-pages/out/
+dcfs-gh-pages/node_modules/

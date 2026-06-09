@@ -1,9 +1,0 @@
-{
-  "/_not-found/page": "/_not-found",
-  "/favicon.ico/route": "/favicon.ico",
-  "/getting-started/page": "/getting-started",
-  "/config-generator/page": "/config-generator",
-  "/join-group/page": "/join-group",
-  "/page": "/",
-  "/webdav-app/page": "/webdav-app"
-}

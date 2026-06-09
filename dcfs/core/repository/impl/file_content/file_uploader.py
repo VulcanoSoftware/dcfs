@@ -1,6 +1,8 @@
 import io
 import logging
+import os
 
+from dcfs.config import get_config
 from dcfs.discord.interface import IDiscordClient
 from dcfs.errors import FileSizeTooLarge, TechnicalError
 from dcfs.reqres import (
@@ -11,8 +13,25 @@ from dcfs.reqres import (
 
 logger = logging.getLogger(__name__)
 
-# Discord file size limits
-DISCORD_MAX_FILE_SIZE = 25 * 1024 * 1024  # 25 MB for Discord servers
+DEFAULT_DISCORD_MAX_FILE_SIZE = 8_000_000
+
+
+def discord_max_file_size_bytes() -> int:
+    if (raw := os.environ.get("DCFS_DISCORD_MAX_FILE_SIZE_BYTES")):
+        try:
+            value = int(raw)
+            if value > 0:
+                return value
+        except Exception:
+            pass
+    try:
+        config = get_config()
+        value = int(getattr(config.discord, "max_file_size_bytes", 0) or 0)
+        if value > 0:
+            return value
+    except Exception:
+        pass
+    return DEFAULT_DISCORD_MAX_FILE_SIZE
 
 
 class FileUploader:
@@ -42,6 +61,7 @@ class FileUploader:
             logger.warning(f"Upload cancelled for {self._file_name}")
             return 0
 
+        limit = discord_max_file_size_bytes()
         await self._file_msg.open()
         self._buffer = io.BytesIO()
         while True:
@@ -49,7 +69,7 @@ class FileUploader:
             if not chunk:
                 break
             self._buffer.write(chunk)
-            if self._buffer.tell() > DISCORD_MAX_FILE_SIZE:
+            if self._buffer.tell() > limit:
                 raise FileSizeTooLarge(self._buffer.tell())
             if await self._cancelled():
                 logger.warning(f"Upload cancelled for {self._file_name}")

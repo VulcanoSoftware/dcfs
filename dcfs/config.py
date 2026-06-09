@@ -216,6 +216,7 @@ class DiscordConfig:
     guild_id: int
     private_file_channel: List[str]
     delete_messages_on_remove: bool
+    max_file_size_bytes: int
 
     @classmethod
     def from_dict(cls, data: dict) -> "DiscordConfig":
@@ -226,6 +227,7 @@ class DiscordConfig:
             delete_messages_on_remove=bool(
                 data.get("delete_messages_on_remove", False)
             ),
+            max_file_size_bytes=int(data.get("max_file_size_bytes", 8_000_000)),
         )
 
 

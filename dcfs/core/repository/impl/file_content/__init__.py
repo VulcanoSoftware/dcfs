@@ -12,10 +12,9 @@ from dcfs.reqres import (
     UploadableFileMessage,
 )
 
-from .file_uploader import DISCORD_MAX_FILE_SIZE, FileUploader
+from .file_uploader import FileUploader, discord_max_file_size_bytes
 
 logger = logging.getLogger(__name__)
-PART_SIZE = DISCORD_MAX_FILE_SIZE
 RETRY_INTERVAL = 5  # seconds
 MAX_RETRIES = 10
 
@@ -62,7 +61,8 @@ class DCMsgFileContentRepository(IFileContentRepository):
         res: List[SentFileMessage] = []
         original_name = file_msg.name or "unnamed"
 
-        for i, part_size in enumerate(self._partition(total_size, PART_SIZE)):
+        max_part_size = discord_max_file_size_bytes()
+        for i, part_size in enumerate(self._partition(total_size, max_part_size)):
             # Update file_msg for the current part
             file_msg.name = f"[part{i+1}]{original_name}"
             file_msg.size = part_size

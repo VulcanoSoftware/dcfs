@@ -7,7 +7,7 @@ The test mirrors the real code path:
     EncryptingFileContentRepository.save()
       → wraps plaintext in EncryptingFileMessage
       → DCMsgFileContentRepository.save()  (simulated by _InMemoryPartRepo)
-        → partitions into 7 MB parts (PART_SIZE)
+        → partitions into Discord-limit parts
         → FileUploader.upload()  (simulated by _read_all)
           → reads 1 MB at a time from EncryptingFileMessage.read()
 
@@ -26,9 +26,8 @@ from dataclasses import dataclass
 import pytest
 
 from dcfs.core.model import DCFSFileVersion
-from dcfs.core.repository.impl.file_content import PART_SIZE
 from dcfs.core.repository.impl.file_content.file_uploader import (
-    DISCORD_MAX_FILE_SIZE,
+    discord_max_file_size_bytes,
 )
 from dcfs.core.repository.interface import IFileContentRepository
 from dcfs.crypto.cipher import CHUNK_OVERHEAD
@@ -70,7 +69,7 @@ class _RecordingInMemoryRepo(IFileContentRepository):
             if not chunk:
                 break
             buf += chunk
-            if len(buf) > DISCORD_MAX_FILE_SIZE:
+            if len(buf) > discord_max_file_size_bytes():
                 from dcfs.errors import FileSizeTooLarge
 
                 raise FileSizeTooLarge(len(buf))
@@ -98,7 +97,8 @@ class _RecordingInMemoryRepo(IFileContentRepository):
         res: list[SentFileMessage] = []
         file_name = file_msg.name or "unnamed"
 
-        for i, part_size in enumerate(self._partition(size, PART_SIZE)):
+        limit = discord_max_file_size_bytes()
+        for i, part_size in enumerate(self._partition(size, limit)):
             file_msg.name = f"[part{i+1}]{file_name}"
             file_msg.size = part_size
             res.append(await self._upload_part(file_msg))
@@ -148,9 +148,9 @@ async def _collect(stream) -> bytes:
 @pytest.mark.parametrize(
     "plaintext_size",
     [
-        25 * 1024 * 1024,     # 25 MB – just at Discord limit
-        50 * 1024 * 1024,     # 50 MB – 3 parts
-        100 * 1024 * 1024,    # 100 MB – the exact scenario from the bug report
+        25_000_000,   # 25 MB – just at Discord limit (Discord uses decimal MB)
+        50_000_000,   # 50 MB – multiple parts
+        100_000_000,  # 100 MB – the exact scenario from the bug report
     ],
     ids=["25MB", "50MB", "100MB"],
 )
@@ -175,10 +175,11 @@ async def test_large_file_parts_stay_under_discord_limit(plaintext_size: int):
     sent = await repo.save(file_msg)
 
     # Verify all parts are under the Discord limit.
+    limit = discord_max_file_size_bytes()
     for i, part_size in enumerate(inner.part_sizes_observed):
-        assert part_size <= DISCORD_MAX_FILE_SIZE, (
+        assert part_size <= limit, (
             f"Part {i+1} is {part_size} bytes "
-            f"(>{DISCORD_MAX_FILE_SIZE} Discord limit)"
+            f"(>{limit} Discord limit)"
         )
 
     # Verify total ciphertext size matches.
@@ -214,8 +215,8 @@ async def test_encrypting_file_message_respects_part_size():
     encrypted = EncryptingFileMessage.wrap(inner_msg, file_key, header)
 
     # Simulate what DCMsgFileContentRepository.save() does:
-    # Read all parts, each capped at PART_SIZE.
-    part_size = PART_SIZE
+    # Read all parts, each capped at the Discord upload limit.
+    part_size = discord_max_file_size_bytes()
     all_parts: list[bytes] = []
     part_index = 0
 
@@ -241,7 +242,7 @@ async def test_encrypting_file_message_respects_part_size():
         all_parts.append(part_bytes)
         part_index += 1
 
-        assert len(part_bytes) <= DISCORD_MAX_FILE_SIZE, (
+        assert len(part_bytes) <= discord_max_file_size_bytes(), (
             f"Part {part_index} is {len(part_bytes)} bytes, "
             f"exceeds Discord limit"
         )

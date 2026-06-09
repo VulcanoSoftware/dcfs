@@ -80,6 +80,7 @@ class TestDiscordConfig:
             "guild_id": 123456789,
             "private_file_channel": ["111111", "222222"],
             "delete_messages_on_remove": True,
+            "max_file_size_bytes": 8_000_000,
         }
         config = DiscordConfig.from_dict(data)
 
@@ -87,6 +88,7 @@ class TestDiscordConfig:
         assert config.guild_id == 123456789
         assert config.private_file_channel == ["111111", "222222"]
         assert config.delete_messages_on_remove is True
+        assert config.max_file_size_bytes == 8_000_000
 
     def test_from_dict_default_delete(self):
         data = {
@@ -97,6 +99,7 @@ class TestDiscordConfig:
         config = DiscordConfig.from_dict(data)
 
         assert config.delete_messages_on_remove is False
+        assert config.max_file_size_bytes == 8_000_000
 
     def test_from_dict_no_guild_id(self):
         data = {

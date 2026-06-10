@@ -56,6 +56,7 @@ class DCMsgFDRepository(IFDRepository):
         has_valid_version = False
 
         for i, version in enumerate(versions):
+            version.part_sizes.clear()
             for j, message_id in enumerate(version.message_ids):
                 if (
                     not (file_message := message_map.get(message_id, None))

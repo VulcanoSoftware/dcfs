@@ -182,6 +182,40 @@ class FTPConfig:
 
 
 @dataclass
+class SFTPConfig:
+    enabled: bool
+    host: str
+    port: int
+
+    @classmethod
+    def from_dict(cls, data: Optional[dict]) -> "SFTPConfig":
+        if not data:
+            return cls(enabled=False, host="127.0.0.1", port=2022)
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            host=data.get("host", "127.0.0.1"),
+            port=int(data.get("port", 2022)),
+        )
+
+
+@dataclass
+class SMBConfig:
+    enabled: bool
+    host: str
+    port: int
+
+    @classmethod
+    def from_dict(cls, data: Optional[dict]) -> "SMBConfig":
+        if not data:
+            return cls(enabled=False, host="127.0.0.1", port=4445)
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            host=data.get("host", "127.0.0.1"),
+            port=int(data.get("port", 4445)),
+        )
+
+
+@dataclass
 class ServerConfig:
     host: str
     port: int
@@ -199,6 +233,8 @@ class DCFSConfig:
     metadata: Dict[str, MetadataConfig]
     server: ServerConfig
     ftp: FTPConfig
+    sftp: SFTPConfig
+    smb: SMBConfig
     encryption: EncryptionConfig
 
     @classmethod
@@ -221,6 +257,8 @@ class DCFSConfig:
             },
             server=ServerConfig.from_dict(data["server"]),
             ftp=FTPConfig.from_dict(data.get("ftp")),
+            sftp=SFTPConfig.from_dict(data.get("sftp")),
+            smb=SMBConfig.from_dict(data.get("smb")),
             encryption=EncryptionConfig.from_dict(data.get("encryption")),
         )
 

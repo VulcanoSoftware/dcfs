@@ -31,3 +31,7 @@ dcfs:
   server:
     host: localhost
     port: 8080
+  ftp:
+    enabled: true
+    host: localhost
+    port: 2121

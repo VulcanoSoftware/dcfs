@@ -373,7 +373,9 @@ class TestFileApi:
 
         result = await file_api.desc(sample_file_ref)
 
-        mock_file_desc_api.get_file_desc.assert_called_once_with(sample_file_ref)
+        mock_file_desc_api.get_file_desc.assert_called_once_with(
+            sample_file_ref, validate=True
+        )
         assert result == sample_file_desc
 
     @pytest.mark.asyncio
@@ -392,7 +394,9 @@ class TestFileApi:
             chunks.append(chunk)
 
         assert chunks == [b""]
-        mock_file_desc_api.get_file_desc.assert_called_once_with(sample_file_ref)
+        mock_file_desc_api.get_file_desc.assert_called_once_with(
+            sample_file_ref, validate=True
+        )
 
     @pytest.mark.asyncio
     async def test_retrieve_regular_file(
@@ -417,7 +421,9 @@ class TestFileApi:
             chunks.append(chunk)
 
         assert chunks == [b"chunk1", b"chunk2"]
-        mock_file_desc_api.get_file_desc.assert_called_once_with(sample_file_ref)
+        mock_file_desc_api.get_file_desc.assert_called_once_with(
+            sample_file_ref, validate=True
+        )
         mock_file_desc_api.download_file_at_version.assert_called_once()
 
     @pytest.mark.asyncio

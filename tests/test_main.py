@@ -129,6 +129,7 @@ class TestMain:
         mock_config = mocker.Mock()
         mock_config.dcfs.server.host = "0.0.0.0"
         mock_config.dcfs.server.port = 9000
+        mock_config.dcfs.ftp.enabled = False
 
         mock_clients = mocker.Mock()
         mock_app = mocker.Mock()

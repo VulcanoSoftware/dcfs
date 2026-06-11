@@ -24,8 +24,11 @@ def create_ftp_server(clients: Clients, config: Config) -> aioftp.Server:
         # The WebDAV app allows ReadonlyUser("anonymous")
         users.append(aioftp.User(permissions=[aioftp.Permission("/", readable=True, writable=False)]))
 
-    path_io_factory = lambda: DCFSPathIO(clients)
-    server = aioftp.Server(users, path_io_factory=path_io_factory)
+    class SessionPathIO(DCFSPathIO):
+        def __init__(self, *args, **kwargs):
+            super().__init__(clients, *args, **kwargs)
+
+    server = aioftp.Server(users, path_io_factory=SessionPathIO)
     return server
 
 

@@ -57,7 +57,10 @@ class IFDRepository(metaclass=ABCMeta):
 
     @abstractmethod
     async def get(
-        self, fr: DCFSFileRef, validate: bool = True
+        self,
+        fr: DCFSFileRef,
+        include_all_versions: bool = False,
+        validate: bool = True,
     ) -> DCFSFileDesc:
         pass
 

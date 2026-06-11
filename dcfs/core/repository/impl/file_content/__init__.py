@@ -48,6 +48,46 @@ class DCMsgFileContentRepository(IFileContentRepository):
     def __init__(self, message_api: MessageApi, max_concurrent_parts: int = 3):
         self._message_api = message_api
         self._download_semaphore = asyncio.Semaphore(max_concurrent_parts)
+        self._upload_semaphore = asyncio.Semaphore(max_concurrent_parts)
+
+    async def _upload_part_task(
+        self,
+        uploader: FileUploader,
+        chat_id: int,
+        part_num: int,
+        part_size: int,
+        semaphore: asyncio.Semaphore,
+    ) -> SentFileMessage:
+        """Helper task to send a buffered part to Discord with retries."""
+        try:
+            retries = 0
+            last_ex: Optional[Exception] = None
+
+            while retries < MAX_RETRIES:
+                try:
+                    resp = await uploader.send(chat_id)
+                    return SentFileMessage(message_id=resp.message_id, size=part_size)
+                except Exception as ex:
+                    last_ex = ex
+                    if not _is_transient(ex):
+                        logger.error(f"Permanent upload failure for part {part_num}: {ex}")
+                        raise TechnicalError(
+                            f"Permanent upload failure for part {part_num}: {ex}"
+                        ) from ex
+
+                    retries += 1
+                    logger.warning(
+                        f"Transient upload failure for part {part_num} ({ex}). "
+                        f"Retry {retries}/{MAX_RETRIES} in {RETRY_INTERVAL}s..."
+                    )
+                    uploader.reset_buffer()
+                    await asyncio.sleep(RETRY_INTERVAL)
+
+            raise TransientUploadError(
+                uploader._file_name, MAX_RETRIES, last_ex or Exception("Unknown error")
+            )
+        finally:
+            semaphore.release()
 
     @staticmethod
     def _partition(size: int, part_size: int):
@@ -58,50 +98,44 @@ class DCMsgFileContentRepository(IFileContentRepository):
 
     async def save(self, file_msg: UploadableFileMessage) -> List[SentFileMessage]:
         total_size = file_msg.get_size()
-        res: List[SentFileMessage] = []
         original_name = file_msg.name or "unnamed"
+        tasks = []
 
         max_part_size = discord_max_file_size_bytes()
         for i, part_size in enumerate(self._partition(total_size, max_part_size)):
+            # Acquire semaphore BEFORE buffering to keep memory usage under control.
+            # Only N parts will be buffered and uploading concurrently.
+            await self._upload_semaphore.acquire()
+
             # Update file_msg for the current part
             file_msg.name = f"[part{i+1}]{original_name}"
             file_msg.size = part_size
 
-            uploader = FileUploader(self._message_api.discord_api.bot, file_msg)
-            retries = 0
-            last_ex: Optional[Exception] = None
-            part_sent = False
+            # Create an uploader for this part. Using next_bot to distribute load
+            # across multiple bots if available.
+            uploader = FileUploader(self._message_api.discord_api.next_bot, file_msg)
 
-            while retries < MAX_RETRIES:
-                try:
-                    await uploader.upload()
-                    resp = await uploader.send(self._message_api.private_file_channel)
-                    res.append(SentFileMessage(message_id=resp.message_id, size=part_size))
-                    part_sent = True
-                    break
-                except Exception as ex:
-                    last_ex = ex
-                    if not _is_transient(ex):
-                        logger.error(f"Permanent upload failure for part {i+1}: {ex}")
-                        raise TechnicalError(f"Permanent upload failure for part {i+1}: {ex}") from ex
+            # Read and buffer the part content sequentially from the source stream.
+            await uploader.upload()
 
-                    retries += 1
-                    logger.warning(
-                        f"Transient upload failure for part {i+1} ({ex}). "
-                        f"Retry {retries}/{MAX_RETRIES} in {RETRY_INTERVAL}s..."
+            # Dispatch the upload as a background task.
+            tasks.append(
+                asyncio.create_task(
+                    self._upload_part_task(
+                        uploader,
+                        self._message_api.private_file_channel,
+                        i + 1,
+                        part_size,
+                        self._upload_semaphore,
                     )
-                    uploader.reset_buffer()
-                    await asyncio.sleep(RETRY_INTERVAL)
-
-            if not part_sent:
-                raise TransientUploadError(
-                    file_msg.name, MAX_RETRIES, last_ex or Exception("Unknown error")
                 )
+            )
 
-            # Prepare for the next part
+            # Advance the source message to the next part
             file_msg.next_part(part_size)
 
-        return res
+        # Wait for all uploads to complete.
+        return list(await asyncio.gather(*tasks))
 
     async def update(self, message_id: int, buffer: bytes, name: str) -> int:
         retries = 0

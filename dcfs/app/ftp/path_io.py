@@ -1,13 +1,16 @@
-import asyncio
+import logging
 import os
 import pathlib
 import stat
 from typing import AsyncIterator, Optional
 
 import aioftp
+
 from dcfs.app.utils import split_global_path
 from dcfs.core import Clients, Ops
 from dcfs.errors import FileOrDirectoryDoesNotExist
+
+logger = logging.getLogger(__name__)
 
 
 class DCFSPathIO(aioftp.AbstractPathIO):
@@ -25,7 +28,7 @@ class DCFSPathIO(aioftp.AbstractPathIO):
             if client_name in self.clients:
                 return Ops(self.clients[client_name]), "/" + sub_path.lstrip("/")
         except Exception:
-            pass
+            logger.debug(f"Failed to split global path: {path_str}")
         return None, path_str
 
     async def exists(self, path: pathlib.PurePosixPath) -> bool:
@@ -75,11 +78,21 @@ class DCFSPathIO(aioftp.AbstractPathIO):
         except FileOrDirectoryDoesNotExist:
             return False
 
-    async def mkdir(self, path: pathlib.PurePosixPath, parents: bool = False) -> None:
+    async def mkdir(
+        self,
+        path: pathlib.PurePosixPath,
+        *,
+        parents: bool = False,
+        exist_ok: bool = False,
+    ) -> None:
         ops, sub_path = self._get_ops(path)
         if ops is None:
             raise PermissionError("Cannot create directory in root")
-        await ops.mkdir(sub_path, parents)
+        try:
+            await ops.mkdir(sub_path, parents)
+        except Exception:
+            if not exist_ok:
+                raise
 
     async def rmdir(self, path: pathlib.PurePosixPath) -> None:
         ops, sub_path = self._get_ops(path)
@@ -111,52 +124,48 @@ class DCFSPathIO(aioftp.AbstractPathIO):
         for f in directory.find_files():
             yield path / f.name
 
-    async def stat(self, path: pathlib.PurePosixPath) -> dict:
+    async def stat(self, path: pathlib.PurePosixPath) -> os.stat_result:
         ops, sub_path = self._get_ops(path)
-        # We need to return a dictionary with at least 'type' and 'size'
-        # Other common fields: 'mtime', 'ctime', 'mode'
 
-        if ops is None:
+        mode = 0
+        size = 0
+        mtime = 0.0
+
+        if ops is None or sub_path == "/":
             # Root or client root
-            return {
-                "type": "dir",
-                "size": 0,
-                "mtime": 0,
-                "mode": stat.S_IFDIR | 0o755,
-            }
+            mode = stat.S_IFDIR | 0o755
+        else:
+            try:
+                directory = ops.cd(sub_path)
+                mode = stat.S_IFDIR | 0o755
+                mtime = directory.modified_at_timestamp / 1000
+            except FileOrDirectoryDoesNotExist:
+                fd = await ops.desc(sub_path, validate=False)
+                fv = fd.get_latest_version()
+                size = await ops._client.fc_repo.content_length(fv)
+                mode = stat.S_IFREG | 0o644
+                mtime = fv.updated_at_timestamp / 1000
 
-        if sub_path == "/":
-             return {
-                "type": "dir",
-                "size": 0,
-                "mtime": 0,
-                "mode": stat.S_IFDIR | 0o755,
-            }
+        return os.stat_result((mode, 0, 0, 0, 0, 0, size, mtime, mtime, mtime))
 
-        try:
-            directory = ops.cd(sub_path)
-            return {
-                "type": "dir",
-                "size": 0,
-                "mtime": directory.modified_at_timestamp / 1000,
-                "mode": stat.S_IFDIR | 0o755,
-            }
-        except FileOrDirectoryDoesNotExist:
-            fd = await ops.desc(sub_path, validate=False)
-            fv = fd.get_latest_version()
-            size = await ops._client.fc_repo.content_length(fv)
-            return {
-                "type": "file",
-                "size": size,
-                "mtime": fv.updated_at_timestamp / 1000,
-                "mode": stat.S_IFREG | 0o644,
-            }
-
-    def open(self, path: pathlib.PurePosixPath, mode: str = "rb") -> "DCFSFileIO":
+    async def _open(self, path: pathlib.PurePosixPath, mode: str) -> "DCFSFileIO":  # type: ignore[override]
         ops, sub_path = self._get_ops(path)
         if ops is None:
             raise PermissionError("Cannot open root or client directory")
         return DCFSFileIO(ops, sub_path, mode)
+
+    async def read(self, file: "DCFSFileIO", block_size: int) -> bytes:  # type: ignore[override]
+        return await file.read(block_size)
+
+    async def write(self, file: "DCFSFileIO", data: bytes) -> int:  # type: ignore[override]
+        await file.write(data)
+        return len(data)
+
+    async def seek(self, file: "DCFSFileIO", offset: int, whence: int = os.SEEK_SET) -> int:  # type: ignore[override]
+        return await file.seek(offset, whence)
+
+    async def close(self, file: "DCFSFileIO") -> None:  # type: ignore[override]
+        await file.close()
 
     async def rename(self, source: pathlib.PurePosixPath, destination: pathlib.PurePosixPath) -> None:
         ops_src, sub_src = self._get_ops(source)

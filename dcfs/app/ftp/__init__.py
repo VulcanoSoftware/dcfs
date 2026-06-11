@@ -1,6 +1,7 @@
 import logging
 
 import aioftp
+
 from dcfs.config import Config
 from dcfs.core import Clients
 
@@ -24,9 +25,11 @@ def create_ftp_server(clients: Clients, config: Config) -> aioftp.Server:
         # The WebDAV app allows ReadonlyUser("anonymous")
         users.append(aioftp.User(permissions=[aioftp.Permission("/", readable=True, writable=False)]))
 
-    path_io_factory = lambda: DCFSPathIO(clients)
-    server = aioftp.Server(users, path_io_factory=path_io_factory)
-    return server
+    class SessionPathIO(DCFSPathIO):
+        def __init__(self, *args, **kwargs):
+            super().__init__(clients, *args, **kwargs)
+
+    return aioftp.Server(users, path_io_factory=SessionPathIO)
 
 
 async def run_ftp_server(server: aioftp.Server, host: str, port: int):

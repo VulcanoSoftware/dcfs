@@ -146,17 +146,17 @@ export default function ConfigGenerator() {
       },
       ftp: {
         enabled: false,
-        host: "0.0.0.0",
+        host: "127.0.0.1",
         port: 2121,
       },
       sftp: {
         enabled: false,
-        host: "0.0.0.0",
+        host: "127.0.0.1",
         port: 2022,
       },
       smb: {
         enabled: false,
-        host: "0.0.0.0",
+        host: "127.0.0.1",
         port: 4445,
       },
       encryption: {

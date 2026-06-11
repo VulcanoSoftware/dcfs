@@ -173,10 +173,10 @@ class FTPConfig:
     @classmethod
     def from_dict(cls, data: Optional[dict]) -> "FTPConfig":
         if not data:
-            return cls(enabled=False, host="0.0.0.0", port=2121)
+            return cls(enabled=False, host="127.0.0.1", port=2121)
         return cls(
             enabled=bool(data.get("enabled", False)),
-            host=data.get("host", "0.0.0.0"),
+            host=data.get("host", "127.0.0.1"),
             port=int(data.get("port", 2121)),
         )
 
@@ -190,10 +190,10 @@ class SFTPConfig:
     @classmethod
     def from_dict(cls, data: Optional[dict]) -> "SFTPConfig":
         if not data:
-            return cls(enabled=False, host="0.0.0.0", port=2022)
+            return cls(enabled=False, host="127.0.0.1", port=2022)
         return cls(
             enabled=bool(data.get("enabled", False)),
-            host=data.get("host", "0.0.0.0"),
+            host=data.get("host", "127.0.0.1"),
             port=int(data.get("port", 2022)),
         )
 
@@ -207,10 +207,10 @@ class SMBConfig:
     @classmethod
     def from_dict(cls, data: Optional[dict]) -> "SMBConfig":
         if not data:
-            return cls(enabled=False, host="0.0.0.0", port=4445)
+            return cls(enabled=False, host="127.0.0.1", port=4445)
         return cls(
             enabled=bool(data.get("enabled", False)),
-            host=data.get("host", "0.0.0.0"),
+            host=data.get("host", "127.0.0.1"),
             port=int(data.get("port", 4445)),
         )
 

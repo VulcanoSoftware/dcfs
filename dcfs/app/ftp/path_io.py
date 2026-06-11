@@ -1,13 +1,16 @@
-import asyncio
+import logging
 import os
 import pathlib
 import stat
 from typing import AsyncIterator, Optional
 
 import aioftp
+
 from dcfs.app.utils import split_global_path
 from dcfs.core import Clients, Ops
 from dcfs.errors import FileOrDirectoryDoesNotExist
+
+logger = logging.getLogger(__name__)
 
 
 class DCFSPathIO(aioftp.AbstractPathIO):
@@ -25,7 +28,7 @@ class DCFSPathIO(aioftp.AbstractPathIO):
             if client_name in self.clients:
                 return Ops(self.clients[client_name]), "/" + sub_path.lstrip("/")
         except Exception:
-            pass
+            logger.debug(f"Failed to split global path: {path_str}")
         return None, path_str
 
     async def exists(self, path: pathlib.PurePosixPath) -> bool:

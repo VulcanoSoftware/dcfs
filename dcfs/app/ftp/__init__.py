@@ -1,6 +1,7 @@
 import logging
 
 import aioftp
+
 from dcfs.config import Config
 from dcfs.core import Clients
 
@@ -28,8 +29,7 @@ def create_ftp_server(clients: Clients, config: Config) -> aioftp.Server:
         def __init__(self, *args, **kwargs):
             super().__init__(clients, *args, **kwargs)
 
-    server = aioftp.Server(users, path_io_factory=SessionPathIO)
-    return server
+    return aioftp.Server(users, path_io_factory=SessionPathIO)
 
 
 async def run_ftp_server(server: aioftp.Server, host: str, port: int):

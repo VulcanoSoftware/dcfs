@@ -9,6 +9,7 @@ from uvicorn.config import Config as UvicornConfig
 from uvicorn.server import Server
 
 from dcfs.app import create_app
+from dcfs.app.ftp import create_ftp_server, run_ftp_server
 from dcfs.config import Config, get_config
 from dcfs.core import Client, Clients
 from dcfs.discord import DiscordApi
@@ -56,8 +57,20 @@ async def main():
 
     clients = await create_clients(config)
 
+    tasks = []
+
     app = create_app(clients, config)
-    await run_server(app, config.dcfs.server.host, config.dcfs.server.port, "DCFS")
+    tasks.append(
+        run_server(app, config.dcfs.server.host, config.dcfs.server.port, "DCFS")
+    )
+
+    if config.dcfs.ftp.enabled:
+        ftp_server = create_ftp_server(clients, config)
+        tasks.append(
+            run_ftp_server(ftp_server, config.dcfs.ftp.host, config.dcfs.ftp.port)
+        )
+
+    await asyncio.gather(*tasks)
 
 
 if __name__ == "__main__":

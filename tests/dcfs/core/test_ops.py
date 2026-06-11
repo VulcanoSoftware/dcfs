@@ -142,7 +142,7 @@ class TestOps:
 
         result = await ops.desc("/file.txt")
 
-        ops._client.file_api.desc.assert_called_once_with(mock_file_ref)
+        ops._client.file_api.desc.assert_called_once_with(mock_file_ref, validate=True)
         assert result == mock_file_desc
 
     @pytest.mark.asyncio

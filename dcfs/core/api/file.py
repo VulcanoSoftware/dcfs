@@ -125,8 +125,8 @@ class FileApi:
         except FileOrDirectoryDoesNotExist:
             return await self._create_new_file(under, file_msg)
 
-    async def desc(self, fr: DCFSFileRef) -> DCFSFileDesc:
-        return await self._file_desc_api.get_file_desc(fr)
+    async def desc(self, fr: DCFSFileRef, validate: bool = True) -> DCFSFileDesc:
+        return await self._file_desc_api.get_file_desc(fr, validate=validate)
 
     async def retrieve(
         self,

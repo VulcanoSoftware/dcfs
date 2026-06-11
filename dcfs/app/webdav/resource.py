@@ -29,7 +29,9 @@ class Resource(_Resource):
     async def __fd(self) -> DCFSFileDesc:
         async with self.__lock:
             if self.__fd_value is None:
-                self.__fd_value = await self.__ops.desc(self.__relative_path)
+                self.__fd_value = await self.__ops.desc(
+                    self.__relative_path, validate=False
+                )
         return self.__fd_value
 
     async def creation_date(self) -> int:

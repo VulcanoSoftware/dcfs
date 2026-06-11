@@ -23,8 +23,10 @@ class FileDescApi:
     async def create_file_desc(self, file_msg: FileMessage) -> FDRepositoryResp:
         return await self.append_file_version(file_msg, fr=None)
 
-    async def get_file_desc(self, fr: DCFSFileRef) -> DCFSFileDesc:
-        return await self.__fd_repo.get(fr)
+    async def get_file_desc(
+        self, fr: DCFSFileRef, validate: bool = True
+    ) -> DCFSFileDesc:
+        return await self.__fd_repo.get(fr, validate=validate)
 
     async def download_file_at_version(
         self, fv: DCFSFileVersion, begin: int, end: int, as_name: str

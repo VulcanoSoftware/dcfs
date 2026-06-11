@@ -77,7 +77,10 @@ class DCMsgFDRepository(IFDRepository):
         return fd if has_valid_version else DCFSFileDesc.empty(fd.name)
 
     async def get(
-        self, fr: DCFSFileRef, include_all_versions: bool = False
+        self,
+        fr: DCFSFileRef,
+        include_all_versions: bool = False,
+        validate: bool = True,
     ) -> DCFSFileDesc:
         message = (await self._message_api.get_messages([fr.message_id]))[0]
 
@@ -88,4 +91,7 @@ class DCMsgFDRepository(IFDRepository):
             return DCFSFileDesc.empty(fr.name)
 
         fd = DCFSFileDesc.from_dict(json.loads(message.text), name=fr.name)
+        if not validate:
+            return fd
+
         return await self._validate_fv(fd, include_all_versions)

@@ -165,6 +165,23 @@ class MetadataConfig:
 
 
 @dataclass
+class FTPConfig:
+    enabled: bool
+    host: str
+    port: int
+
+    @classmethod
+    def from_dict(cls, data: Optional[dict]) -> "FTPConfig":
+        if not data:
+            return cls(enabled=False, host="0.0.0.0", port=2121)
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            host=data.get("host", "0.0.0.0"),
+            port=int(data.get("port", 2121)),
+        )
+
+
+@dataclass
 class ServerConfig:
     host: str
     port: int
@@ -181,6 +198,7 @@ class DCFSConfig:
     jwt: JWTConfig
     metadata: Dict[str, MetadataConfig]
     server: ServerConfig
+    ftp: FTPConfig
     encryption: EncryptionConfig
 
     @classmethod
@@ -202,6 +220,7 @@ class DCFSConfig:
                 k: MetadataConfig.from_dict(v) for k, v in metadata_config.items()
             },
             server=ServerConfig.from_dict(data["server"]),
+            ftp=FTPConfig.from_dict(data.get("ftp")),
             encryption=EncryptionConfig.from_dict(data.get("encryption")),
         )
 

@@ -42,8 +42,8 @@ COPY main.py ./
 RUN useradd --create-home --shell /bin/bash dcfs
 USER dcfs
 
-# Expose WebDAV port
-EXPOSE 1900
+# Expose WebDAV and other protocol ports
+EXPOSE 1900 2121 2022 4445
 
 ENV DCFS_DATA_DIR=/home/dcfs/.dcfs
 

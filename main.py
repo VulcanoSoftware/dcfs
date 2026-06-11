@@ -10,6 +10,8 @@ from uvicorn.server import Server
 
 from dcfs.app import create_app
 from dcfs.app.ftp import create_ftp_server, run_ftp_server
+from dcfs.app.sftp import create_sftp_server, run_sftp_server
+from dcfs.app.smb import create_smb_server, run_smb_server
 from dcfs.config import Config, get_config
 from dcfs.core import Client, Clients
 from dcfs.discord import DiscordApi
@@ -69,6 +71,16 @@ async def main():
         tasks.append(
             run_ftp_server(ftp_server, config.dcfs.ftp.host, config.dcfs.ftp.port)
         )
+
+    if config.dcfs.sftp.enabled:
+        sftp_server = await create_sftp_server(clients, config)
+        tasks.append(
+            run_sftp_server(sftp_server, config.dcfs.sftp.host, config.dcfs.sftp.port)
+        )
+
+    if config.dcfs.smb.enabled:
+        smb_server = create_smb_server(clients, config)
+        tasks.append(asyncio.to_thread(run_smb_server, smb_server))
 
     await asyncio.gather(*tasks)
 

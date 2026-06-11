@@ -10,7 +10,7 @@
 Discord becomes a WebDAV server. This project originally started as a fork of [tgfs](https://github.com/TheodoreKrypton/tgfs), but has since diverged into an independent codebase with its own behavior and configuration.
 
 ## Features
-* Upload and download files to/from a private Discord channel via WebDAV
+* Upload and download files to/from a private Discord channel via WebDAV, FTP, SFTP, and SMB
 * Group files on Discord channels into folders
 * Infinite versioning of files and folders (Folder versioning is only available when Metadata is maintained on Github repository)
 * File size is unlimited (larger files are chunked into parts but appear as a single file to the user)
@@ -54,6 +54,18 @@ dcfs:
   server:
     host: 0.0.0.0
     port: 1900
+  ftp:
+    enabled: true
+    host: 0.0.0.0
+    port: 2121
+  sftp:
+    enabled: true
+    host: 0.0.0.0
+    port: 2022
+  smb:
+    enabled: true
+    host: 0.0.0.0
+    port: 4445
   encryption:
     enabled: false
 ```
@@ -118,10 +130,19 @@ poetry run python main.py
 The Docker image is published to GitHub Container Registry:
 
 ```bash
-docker run --pull=always -it -p 1900:1900 -v /path/to/.dcfs:/home/dcfs/.dcfs ghcr.io/vulcanosoftware/dcfs:latest
+docker run --pull=always -it \
+  -p 1900:1900 \
+  -p 2121:2121 \
+  -p 2022:2022 \
+  -p 4445:4445 \
+  -v /path/to/.dcfs:/home/dcfs/.dcfs \
+  ghcr.io/vulcanosoftware/dcfs:latest
 ```
 
 Put your `config.yaml` in the mounted `.dcfs` directory (`/path/to/.dcfs/config.yaml`).
+
+> [!NOTE]
+> NFS support is currently not implemented due to lack of a suitable pure Python library.
 
 Typecheck && lint:
 ```bash

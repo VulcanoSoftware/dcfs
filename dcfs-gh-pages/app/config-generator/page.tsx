@@ -23,6 +23,7 @@ import {
 } from "./components/EncryptionField";
 import { FieldRow } from "./components/FieldRow";
 import { FormSection } from "./components/FormSection";
+import { ProtocolSection } from "./components/ProtocolSection";
 import { UserField } from "./components/UserField";
 
 interface ChannelConfig {
@@ -59,6 +60,21 @@ interface ConfigData {
       host: string;
       port: number;
     };
+    ftp: {
+      enabled: boolean;
+      host: string;
+      port: number;
+    };
+    sftp: {
+      enabled: boolean;
+      host: string;
+      port: number;
+    };
+    smb: {
+      enabled: boolean;
+      host: string;
+      port: number;
+    };
     encryption: EncryptionConfig;
   };
 }
@@ -75,6 +91,9 @@ type ConfigUpdatePaths = {
   "dcfs.jwt.life": number;
   "dcfs.server.host": string;
   "dcfs.server.port": number;
+  "dcfs.ftp": { enabled: boolean; host: string; port: number };
+  "dcfs.sftp": { enabled: boolean; host: string; port: number };
+  "dcfs.smb": { enabled: boolean; host: string; port: number };
   "dcfs.encryption": EncryptionConfig;
 };
 
@@ -125,6 +144,21 @@ export default function ConfigGenerator() {
         host: "0.0.0.0",
         port: 1900,
       },
+      ftp: {
+        enabled: false,
+        host: "0.0.0.0",
+        port: 2121,
+      },
+      sftp: {
+        enabled: false,
+        host: "0.0.0.0",
+        port: 2022,
+      },
+      smb: {
+        enabled: false,
+        host: "0.0.0.0",
+        port: 4445,
+      },
       encryption: {
         enabled: false,
         passphrase_source: "passphrase_env",
@@ -167,6 +201,12 @@ export default function ConfigGenerator() {
         newConfig.dcfs.server.host = value as string;
       } else if (path === "dcfs.server.port") {
         newConfig.dcfs.server.port = value as number;
+      } else if (path === "dcfs.ftp") {
+        newConfig.dcfs.ftp = value as { enabled: boolean; host: string; port: number };
+      } else if (path === "dcfs.sftp") {
+        newConfig.dcfs.sftp = value as { enabled: boolean; host: string; port: number };
+      } else if (path === "dcfs.smb") {
+        newConfig.dcfs.smb = value as { enabled: boolean; host: string; port: number };
       } else if (path === "dcfs.encryption") {
         newConfig.dcfs.encryption = value as EncryptionConfig;
       }
@@ -228,6 +268,9 @@ export default function ConfigGenerator() {
         jwt: config.dcfs.jwt,
         metadata,
         server: config.dcfs.server,
+        ftp: config.dcfs.ftp,
+        sftp: config.dcfs.sftp,
+        smb: config.dcfs.smb,
         encryption: (() => {
           const enc = config.dcfs.encryption;
           const block: {
@@ -670,6 +713,28 @@ export default function ConfigGenerator() {
                   http://{config.dcfs.server.host}:{config.dcfs.server.port}
                 </code>
               </Typography>
+
+            <Typography variant="h6" sx={{ mt: 3 }}>
+              Protocols
+            </Typography>
+            <ProtocolSection
+              title="FTP"
+              config={config.dcfs.ftp}
+              defaultPort={2121}
+              onUpdate={(field, value) => updateConfig("dcfs.ftp", { ...config.dcfs.ftp, [field]: value })}
+            />
+            <ProtocolSection
+              title="SFTP"
+              config={config.dcfs.sftp}
+              defaultPort={2022}
+              onUpdate={(field, value) => updateConfig("dcfs.sftp", { ...config.dcfs.sftp, [field]: value })}
+            />
+            <ProtocolSection
+              title="SMB"
+              config={config.dcfs.smb}
+              defaultPort={4445}
+              onUpdate={(field, value) => updateConfig("dcfs.smb", { ...config.dcfs.smb, [field]: value })}
+            />
             </FormSection>
 
             <FormSection title="Encryption (Optional)">

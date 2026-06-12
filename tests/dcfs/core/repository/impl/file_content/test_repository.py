@@ -1,12 +1,15 @@
-import pytest
 import asyncio
 from unittest.mock import AsyncMock
+
+import pytest
+
+from dcfs.core.api.message import MessageApi
 from dcfs.core.repository.impl.file_content import DCMsgFileContentRepository
 from dcfs.core.repository.impl.file_content.file_uploader import (
     discord_max_file_size_bytes,
 )
-from dcfs.core.api.message import MessageApi
 from dcfs.reqres import FileMessageFromBuffer, SendMessageResp, SentFileMessage
+
 
 class TestDCMsgFileContentRepository:
     @pytest.fixture
@@ -69,10 +72,9 @@ class TestDCMsgFileContentRepository:
             if "[part1]" in req.name:
                 await asyncio.sleep(0.1)  # Part 1 finishes last
                 return SendMessageResp(message_id=1)
-            elif "[part2]" in req.name:
+            if "[part2]" in req.name:
                 return SendMessageResp(message_id=2)
-            else:
-                return SendMessageResp(message_id=3)
+            return SendMessageResp(message_id=3)
 
         mock_message_api.discord_api.next_bot.send_file = AsyncMock(side_effect=delayed_send)
 

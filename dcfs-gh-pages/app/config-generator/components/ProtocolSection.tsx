@@ -11,7 +11,7 @@ interface ProtocolConfig {
 interface ProtocolSectionProps {
   title: string;
   config: ProtocolConfig;
-  onUpdate: (field: keyof ProtocolConfig, value: any) => void;
+  onUpdate: (field: keyof ProtocolConfig, value: string | number | boolean) => void;
   defaultPort: number;
 }
 

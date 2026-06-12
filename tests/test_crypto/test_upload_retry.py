@@ -1,12 +1,16 @@
 import os
+
 import pytest
-from dcfs.crypto.header import HEADER_SIZE
-from dcfs.crypto.repository import EncryptingFileContentRepository
-from dcfs.crypto.stream import EncryptingFileMessage
-from dcfs.reqres import FileContent, FileMessageFromBuffer, SentFileMessage, UploadableFileMessage
-from dcfs.errors import TransientUploadError
-from dcfs.core.repository.interface import IFileContentRepository
+
 from dcfs.core.model import DCFSFileVersion
+from dcfs.core.repository.interface import IFileContentRepository
+from dcfs.crypto.repository import EncryptingFileContentRepository
+from dcfs.reqres import (
+    FileContent,
+    FileMessageFromBuffer,
+    SentFileMessage,
+    UploadableFileMessage,
+)
 
 # Reuse the same constants for consistency
 MASTER_KEY = b"\x77" * 32
@@ -103,8 +107,9 @@ async def test_encrypted_upload_retry_consistency():
     assert len(sent) == len(inner_repo.parts)
 
     # Verify the final assembled ciphertext is correct by decrypting it
-    from dcfs.core.model import DCFSFileVersion
     import datetime
+
+    from dcfs.core.model import DCFSFileVersion
 
     total_size = sum(s.size for s in sent)
     fv = DCFSFileVersion(

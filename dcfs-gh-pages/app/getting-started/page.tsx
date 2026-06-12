@@ -18,28 +18,6 @@ import { useState, useEffect } from "react";
 
 export default function GettingStarted() {
   const [activeStep, setActiveStep] = useState(0);
-  const [pathStyle, setPathStyle] = useState<"unix" | "windows">("unix");
-  const [dockerConfig, setDockerConfig] = useState({
-    dcfsPort: 1900,
-    dcfsDataDir: "/home/user/.dcfs",
-  });
-
-  // Auto-detect OS and set default path style
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const userAgent = window.navigator.userAgent;
-      const isWindows = userAgent.includes("Windows");
-      setPathStyle(isWindows ? "windows" : "unix");
-
-      // Set default path based on OS
-      setDockerConfig((prev) => ({
-        ...prev,
-        dcfsDataDir: isWindows
-          ? "C:\\Users\\user\\.dcfs"
-          : "/home/user/.dcfs",
-      }));
-    }
-  }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800">
@@ -227,98 +205,37 @@ export default function GettingStarted() {
               </StepLabel>
               <StepContent>
                 <Typography className="text-slate-300" sx={{ marginBottom: 3 }}>
-                  Run dcfs with Docker (recommended):
+                  Run dcfs using the custom Docker command from the Config
+                  Generator:
                 </Typography>
 
-                <Box
-                  sx={{
-                    marginBottom: 3,
-                    display: "flex",
-                    gap: 2,
-                    flexDirection: "column",
-                  }}
-                >
-                  <Box sx={{ display: "flex", gap: 4 }}>
-                    <TextField
-                      label="dcfs Port"
-                      type="number"
-                      value={dockerConfig.dcfsPort}
-                      onChange={(e) =>
-                        setDockerConfig((prev) => ({
-                          ...prev,
-                          dcfsPort: parseInt(e.target.value) || 1900,
-                        }))
-                      }
-                    />
-                    <TextField
-                      label="Path of .dcfs directory"
-                      value={dockerConfig.dcfsDataDir}
-                      onChange={(e) =>
-                        setDockerConfig((prev) => ({
-                          ...prev,
-                          dcfsDataDir: e.target.value,
-                        }))
-                      }
-                      slotProps={{
-                        input: {
-                          endAdornment: (
-                            <span className="text-slate-400">
-                              {pathStyle === "windows"
-                                ? "\\config.yaml"
-                                : "/config.yaml"}
-                            </span>
-                          ),
-                        },
-                      }}
-                      sx={{ flex: 1 }}
-                    />
-                  </Box>
-
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                    <Typography variant="body2" color="text.secondary">
-                      Path Style:
-                    </Typography>
-                    <ToggleButtonGroup
-                      value={pathStyle}
-                      exclusive
-                      onChange={(_, newStyle) => {
-                        if (newStyle) {
-                          setPathStyle(newStyle);
-                          setDockerConfig((prev) => ({
-                            ...prev,
-                            dcfsDataDir:
-                              newStyle === "windows"
-                                ? "C:\\Users\\user\\.dcfs"
-                                : "/home/user/.dcfs",
-                          }));
-                        }
-                      }}
-                      size="small"
-                    >
-                      <ToggleButton value="unix">Unix</ToggleButton>
-                      <ToggleButton value="windows">Windows</ToggleButton>
-                    </ToggleButtonGroup>
-                  </Box>
-                </Box>
                 <div
                   className="bg-slate-700 rounded-lg p-4"
                   style={{ marginBottom: "24px" }}
                 >
-                  <code className="text-sm text-slate-300 block break-all">
-                    docker run --pull=always -it -p {dockerConfig.dcfsPort}:1900 -v{" "}
-                    {pathStyle === "windows"
-                      ? `"${dockerConfig.dcfsDataDir}:/home/dcfs/.dcfs"`
-                      : `${dockerConfig.dcfsDataDir}:/home/dcfs/.dcfs`}{" "}
-                    ghcr.io/vulcanosoftware/dcfs:latest
-                  </code>
+                  <Typography className="text-slate-300 mb-2">
+                    1. Go back to the{" "}
+                    <Link
+                      href="/config-generator"
+                      className="text-blue-400 hover:underline"
+                    >
+                      Config Generator
+                    </Link>
+                  </Typography>
+                  <Typography className="text-slate-300 mb-2">
+                    2. Fill in your settings and enable the protocols you want
+                    to use (WebDAV, FTP, SFTP, SMB)
+                  </Typography>
+                  <Typography className="text-slate-300">
+                    3. Copy the <b>Docker Run Command</b> at the bottom of the
+                    sidebar and run it in your terminal
+                  </Typography>
                 </div>
+
                 <Typography className="text-slate-300" sx={{ marginBottom: 3 }}>
-                  Put your <code>config.yaml</code> in the mounted directory:{" "}
-                  <code>
-                    {pathStyle === "windows"
-                      ? `${dockerConfig.dcfsDataDir}\\config.yaml`
-                      : `${dockerConfig.dcfsDataDir}/config.yaml`}
-                  </code>
+                  Make sure your <code>config.yaml</code> is placed in the
+                  directory you mapped in the volume mount (<code>-v</code>{" "}
+                  flag).
                 </Typography>
 
                 <div style={{ marginTop: "24px" }}>

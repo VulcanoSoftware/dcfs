@@ -235,7 +235,38 @@ export default function ConfigGenerator() {
     reader.onload = (e) => {
       try {
         const content = e.target?.result as string;
-        const parsed = yaml.load(content) as any;
+        const parsed = yaml.load(content) as {
+          discord?: {
+            bot_token?: string;
+            guild_id?: string | number;
+            private_file_channel?: string[];
+          };
+          dcfs?: {
+            metadata?: Record<
+              string,
+              {
+                name?: string;
+                type?: "pinned_message" | "github_repo";
+                github_repo?: ChannelConfig["github_repo"];
+              }
+            >;
+            users?: Record<string, { password?: string }>;
+            download?: ConfigData["dcfs"]["download"];
+            jwt?: ConfigData["dcfs"]["jwt"];
+            server?: ConfigData["dcfs"]["server"];
+            ftp?: ConfigData["dcfs"]["ftp"];
+            sftp?: ConfigData["dcfs"]["sftp"];
+            smb?: ConfigData["dcfs"]["smb"];
+            encryption?: {
+              enabled: boolean;
+              passphrase?: string;
+              passphrase_env?: string;
+              passphrase_file?: string;
+              master_salt_file?: string;
+              chunk_size?: number;
+            };
+          };
+        };
 
         // Map parsed YAML back to our state
         const newConfig = { ...config };
@@ -246,10 +277,10 @@ export default function ConfigGenerator() {
           if (parsed.discord.guild_id)
             newConfig.discord.guild_id = String(parsed.discord.guild_id);
 
-          if (parsed.discord.private_file_channel && parsed.dcfs.metadata) {
+          if (parsed.discord.private_file_channel && parsed.dcfs?.metadata) {
             newConfig.discord.channels = parsed.discord.private_file_channel.map(
               (id: string) => {
-                const meta = parsed.dcfs.metadata[id] || {};
+                const meta = parsed.dcfs?.metadata?.[id] || {};
                 return {
                   id,
                   name: meta.name || "default",
@@ -264,9 +295,9 @@ export default function ConfigGenerator() {
         if (parsed.dcfs) {
           if (parsed.dcfs.users) {
             newConfig.dcfs.users = Object.entries(parsed.dcfs.users).map(
-              ([username, user]: [string, any]) => ({
+              ([username, user]) => ({
                 username,
-                password: user.password,
+                password: user.password || "",
               })
             );
           }

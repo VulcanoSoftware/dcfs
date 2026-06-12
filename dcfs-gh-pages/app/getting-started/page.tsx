@@ -2,19 +2,15 @@
 
 import { ArrowBack, Settings } from "@mui/icons-material";
 import {
-  Box,
   Button,
   Step,
   StepContent,
   StepLabel,
   Stepper,
-  TextField,
-  ToggleButton,
-  ToggleButtonGroup,
   Typography,
 } from "@mui/material";
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 export default function GettingStarted() {
   const [activeStep, setActiveStep] = useState(0);

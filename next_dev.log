@@ -1,0 +1,16 @@
+
+> dcfs-gh-pages@0.1.0 dev
+> next dev --turbopack
+
+   ▲ Next.js 15.3.5 (Turbopack)
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.0.2:3000
+
+ ✓ Starting...
+ ✓ Ready in 1342ms
+ ○ Compiling /_not-found/page ...
+ ✓ Compiled /_not-found/page in 5.3s
+ GET /config-generator/ 404 in 6077ms
+ GET /getting-started/ 404 in 109ms
+ GET /config-generator/ 404 in 135ms
+ GET /getting-started/ 404 in 154ms

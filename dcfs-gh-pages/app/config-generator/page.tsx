@@ -1,6 +1,6 @@
 "use client";
 
-import { Add, ContentCopy, Delete, Download, Refresh } from "@mui/icons-material";
+import { Add, ContentCopy, Delete, Download, Refresh, UploadFile } from "@mui/icons-material";
 import {
   Alert,
   AlertTitle,
@@ -13,7 +13,7 @@ import {
   Typography,
 } from "@mui/material";
 import yaml from "js-yaml";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { ConfigTextField } from "./components/ConfigTextField";
@@ -171,49 +171,53 @@ export default function ConfigGenerator() {
     },
   });
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const updateConfig = useCallback(
     <K extends keyof ConfigUpdatePaths>(
       path: K,
       value: ConfigUpdatePaths[K]
     ): void => {
-      const newConfig = { ...config };
+      setConfig((prev) => {
+        const newConfig = { ...prev };
 
-      if (path === "discord.bot_token") {
-        newConfig.discord.bot_token = value as string;
-      } else if (path === "discord.guild_id") {
-        newConfig.discord.guild_id = value as string;
-      } else if (path === "discord.channels") {
-        newConfig.discord.channels = value as ChannelConfig[];
-      } else if (path === "dcfs.users") {
-        newConfig.dcfs.users = value as {
-          username: string;
-          password: string;
-        }[];
-      } else if (path === "dcfs.download.chunk_size_kb") {
-        newConfig.dcfs.download.chunk_size_kb = value as number;
-      } else if (path === "dcfs.jwt.secret") {
-        newConfig.dcfs.jwt.secret = value as string;
-      } else if (path === "dcfs.jwt.algorithm") {
-        newConfig.dcfs.jwt.algorithm = value as string;
-      } else if (path === "dcfs.jwt.life") {
-        newConfig.dcfs.jwt.life = value as number;
-      } else if (path === "dcfs.server.host") {
-        newConfig.dcfs.server.host = value as string;
-      } else if (path === "dcfs.server.port") {
-        newConfig.dcfs.server.port = value as number;
-      } else if (path === "dcfs.ftp") {
-        newConfig.dcfs.ftp = value as { enabled: boolean; host: string; port: number };
-      } else if (path === "dcfs.sftp") {
-        newConfig.dcfs.sftp = value as { enabled: boolean; host: string; port: number };
-      } else if (path === "dcfs.smb") {
-        newConfig.dcfs.smb = value as { enabled: boolean; host: string; port: number };
-      } else if (path === "dcfs.encryption") {
-        newConfig.dcfs.encryption = value as EncryptionConfig;
-      }
+        if (path === "discord.bot_token") {
+          newConfig.discord.bot_token = value as string;
+        } else if (path === "discord.guild_id") {
+          newConfig.discord.guild_id = value as string;
+        } else if (path === "discord.channels") {
+          newConfig.discord.channels = value as ChannelConfig[];
+        } else if (path === "dcfs.users") {
+          newConfig.dcfs.users = value as {
+            username: string;
+            password: string;
+          }[];
+        } else if (path === "dcfs.download.chunk_size_kb") {
+          newConfig.dcfs.download.chunk_size_kb = value as number;
+        } else if (path === "dcfs.jwt.secret") {
+          newConfig.dcfs.jwt.secret = value as string;
+        } else if (path === "dcfs.jwt.algorithm") {
+          newConfig.dcfs.jwt.algorithm = value as string;
+        } else if (path === "dcfs.jwt.life") {
+          newConfig.dcfs.jwt.life = value as number;
+        } else if (path === "dcfs.server.host") {
+          newConfig.dcfs.server.host = value as string;
+        } else if (path === "dcfs.server.port") {
+          newConfig.dcfs.server.port = value as number;
+        } else if (path === "dcfs.ftp") {
+          newConfig.dcfs.ftp = value as { enabled: boolean; host: string; port: number };
+        } else if (path === "dcfs.sftp") {
+          newConfig.dcfs.sftp = value as { enabled: boolean; host: string; port: number };
+        } else if (path === "dcfs.smb") {
+          newConfig.dcfs.smb = value as { enabled: boolean; host: string; port: number };
+        } else if (path === "dcfs.encryption") {
+          newConfig.dcfs.encryption = value as EncryptionConfig;
+        }
 
-      setConfig(newConfig);
+        return newConfig;
+      });
     },
-    [config]
+    []
   );
 
   // Generate JWT secret on client side only to avoid hydration mismatch
@@ -222,6 +226,87 @@ export default function ConfigGenerator() {
       updateConfig("dcfs.jwt.secret", generateRandomSecret());
     }
   }, [config.dcfs.jwt.secret, updateConfig]);
+
+  const onFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const content = e.target?.result as string;
+        const parsed = yaml.load(content) as any;
+
+        // Map parsed YAML back to our state
+        const newConfig = { ...config };
+
+        if (parsed.discord) {
+          if (parsed.discord.bot_token)
+            newConfig.discord.bot_token = parsed.discord.bot_token;
+          if (parsed.discord.guild_id)
+            newConfig.discord.guild_id = String(parsed.discord.guild_id);
+
+          if (parsed.discord.private_file_channel && parsed.dcfs.metadata) {
+            newConfig.discord.channels = parsed.discord.private_file_channel.map(
+              (id: string) => {
+                const meta = parsed.dcfs.metadata[id] || {};
+                return {
+                  id,
+                  name: meta.name || "default",
+                  type: meta.type || "pinned_message",
+                  github_repo: meta.github_repo,
+                };
+              }
+            );
+          }
+        }
+
+        if (parsed.dcfs) {
+          if (parsed.dcfs.users) {
+            newConfig.dcfs.users = Object.entries(parsed.dcfs.users).map(
+              ([username, user]: [string, any]) => ({
+                username,
+                password: user.password,
+              })
+            );
+          }
+          if (parsed.dcfs.download)
+            newConfig.dcfs.download = parsed.dcfs.download;
+          if (parsed.dcfs.jwt) newConfig.dcfs.jwt = parsed.dcfs.jwt;
+          if (parsed.dcfs.server) newConfig.dcfs.server = parsed.dcfs.server;
+          if (parsed.dcfs.ftp) newConfig.dcfs.ftp = parsed.dcfs.ftp;
+          if (parsed.dcfs.sftp) newConfig.dcfs.sftp = parsed.dcfs.sftp;
+          if (parsed.dcfs.smb) newConfig.dcfs.smb = parsed.dcfs.smb;
+          if (parsed.dcfs.encryption) {
+            const enc = parsed.dcfs.encryption;
+            newConfig.dcfs.encryption = {
+              ...newConfig.dcfs.encryption,
+              enabled: enc.enabled,
+              master_salt_file: enc.master_salt_file || "master.salt",
+              chunk_size: enc.chunk_size || 65536,
+              passphrase_source: enc.passphrase
+                ? "passphrase"
+                : enc.passphrase_env
+                ? "passphrase_env"
+                : "passphrase_file",
+              passphrase: enc.passphrase || "",
+              passphrase_env: enc.passphrase_env || "DCFS_MASTER_PASSPHRASE",
+              passphrase_file:
+                enc.passphrase_file || "secrets/master.passphrase",
+            };
+          }
+        }
+
+        setConfig(newConfig);
+      } catch (err) {
+        console.error("Failed to parse YAML:", err);
+        alert("Failed to parse config.yaml. Please ensure it is a valid YAML file.");
+      }
+    };
+    reader.readAsText(file);
+    // Reset input so the same file can be uploaded again
+    event.target.value = "";
+  };
 
   const generateYaml = () => {
     // Build metadata object from channels
@@ -300,6 +385,20 @@ export default function ConfigGenerator() {
     };
 
     return yaml.dump(configForYaml, { indent: 2 });
+  };
+
+  const getDockerCommand = () => {
+    const ports = [`-p ${config.dcfs.server.port}:${config.dcfs.server.port}`];
+    if (config.dcfs.ftp.enabled)
+      ports.push(`-p ${config.dcfs.ftp.port}:${config.dcfs.ftp.port}`);
+    if (config.dcfs.sftp.enabled)
+      ports.push(`-p ${config.dcfs.sftp.port}:${config.dcfs.sftp.port}`);
+    if (config.dcfs.smb.enabled)
+      ports.push(`-p ${config.dcfs.smb.port}:${config.dcfs.smb.port}`);
+
+    return `docker run --pull=always -it ${ports.join(
+      " "
+    )} -v /path/to/config:/home/dcfs/.dcfs ghcr.io/vulcanosoftware/dcfs:latest`;
   };
 
   const downloadConfig = () => {
@@ -462,6 +561,23 @@ export default function ConfigGenerator() {
         <AlertTitle>Important</AlertTitle>
         Keep your bot token and channel IDs secure. Never share them publicly.
       </Alert>
+
+      <Box sx={{ display: "flex", justifyContent: "center", mb: 4 }}>
+        <input
+          type="file"
+          ref={fileInputRef}
+          style={{ display: "none" }}
+          accept=".yaml,.yml"
+          onChange={onFileUpload}
+        />
+        <Button
+          variant="outlined"
+          startIcon={<UploadFile />}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          Load Existing config.yaml
+        </Button>
+      </Box>
 
       <Box
         sx={{
@@ -782,7 +898,7 @@ export default function ConfigGenerator() {
               </Button>
             </Box>
 
-            <Card variant="outlined">
+            <Card variant="outlined" sx={{ mb: 3 }}>
               <CardContent sx={{ p: 0 }}>
                 <SyntaxHighlighter
                   language="yaml"
@@ -796,6 +912,39 @@ export default function ConfigGenerator() {
                 </SyntaxHighlighter>
               </CardContent>
             </Card>
+
+            <Typography variant="h6" gutterBottom>
+              Docker Run Command
+            </Typography>
+            <Box
+              sx={{
+                bgcolor: "grey.900",
+                color: "grey.100",
+                p: 2,
+                borderRadius: 1,
+                position: "relative",
+              }}
+            >
+              <Typography
+                variant="body2"
+                component="code"
+                sx={{
+                  display: "block",
+                  wordBreak: "break-all",
+                  fontFamily: "monospace",
+                }}
+              >
+                {getDockerCommand()}
+              </Typography>
+              <Button
+                size="small"
+                startIcon={<ContentCopy />}
+                onClick={() => navigator.clipboard.writeText(getDockerCommand())}
+                sx={{ mt: 1, color: "grey.400" }}
+              >
+                Copy Command
+              </Button>
+            </Box>
           </Paper>
         </Box>
       </Box>

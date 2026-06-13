@@ -434,7 +434,7 @@ export default function ConfigGenerator() {
 
     return `docker run --pull=always -it ${ports.join(
       " "
-    )} -v ${dockerConfigPath}:/home/dcfs/.dcfs ghcr.io/vulcanosoftware/dcfs:latest`;
+    )} -v "${dockerConfigPath}:/home/dcfs/.dcfs" ghcr.io/vulcanosoftware/dcfs:latest`;
   };
 
   const downloadConfig = () => {
@@ -953,35 +953,35 @@ export default function ConfigGenerator() {
               Docker Run Options
             </Typography>
             <Box sx={{ mb: 2 }}>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                Operating System
-              </Typography>
-              <ToggleButtonGroup
-                value={os}
-                exclusive
-                onChange={(_, newOs) => {
-                  if (newOs !== null) {
-                    setOs(newOs);
-                    if (newOs === "unix" && dockerConfigPath === "${PWD}") {
-                      setDockerConfigPath("$(pwd)");
-                    } else if (
-                      newOs === "windows" &&
-                      dockerConfigPath === "$(pwd)"
-                    ) {
-                      setDockerConfigPath("${PWD}");
+              <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 2 }}>
+                <Typography variant="body2" color="text.secondary">
+                  Path Style:
+                </Typography>
+                <ToggleButtonGroup
+                  value={os}
+                  exclusive
+                  onChange={(_, newOs) => {
+                    if (newOs !== null) {
+                      setOs(newOs);
+                      if (newOs === "unix" && dockerConfigPath === "${PWD}") {
+                        setDockerConfigPath("$(pwd)");
+                      } else if (
+                        newOs === "windows" &&
+                        dockerConfigPath === "$(pwd)"
+                      ) {
+                        setDockerConfigPath("${PWD}");
+                      }
                     }
-                  }
-                }}
-                size="small"
-                fullWidth
-                sx={{ mb: 2 }}
-              >
-                <ToggleButton value="unix">Linux / macOS</ToggleButton>
-                <ToggleButton value="windows">Windows</ToggleButton>
-              </ToggleButtonGroup>
+                  }}
+                  size="small"
+                >
+                  <ToggleButton value="unix">UNIX</ToggleButton>
+                  <ToggleButton value="windows">WINDOWS</ToggleButton>
+                </ToggleButtonGroup>
+              </Box>
 
               <ConfigTextField
-                label="Host Config Path"
+                label="Path of config.yaml"
                 value={dockerConfigPath}
                 onChange={(e) => setDockerConfigPath(e.target.value)}
                 fullWidth
@@ -994,7 +994,7 @@ export default function ConfigGenerator() {
             </Typography>
             <Box
               sx={{
-                bgcolor: "grey.900",
+                bgcolor: "#1e293b",
                 color: "grey.100",
                 p: 2,
                 borderRadius: 1,

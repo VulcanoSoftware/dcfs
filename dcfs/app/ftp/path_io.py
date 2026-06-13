@@ -188,7 +188,10 @@ class DCFSFileIO:
         self.path = path
         self.mode = mode
         self.buffer = bytearray()
+        self.pos = 0
         self.closed = False
+        self._stream: Optional[AsyncIterator[bytes]] = None
+        self._iter: Optional[AsyncIterator[bytes]] = None
 
     async def __aenter__(self):
         return self
@@ -200,27 +203,24 @@ class DCFSFileIO:
         if "r" not in self.mode:
             raise IOError("File not open for reading")
 
-        # This is tricky because aioftp expects a seekable/readable file-like object
-        # but our download is a stream.
-        # For simplicity, if this is the first read, we might need to fetch the whole thing
-        # or implement a better streaming reader.
-
-        # Actually, aioftp's server uses `read` in a loop.
-        # If we want to support streaming, we should probably keep an iterator.
-
-        if not hasattr(self, "_stream"):
-             self._stream = await self.ops.download(self.path, 0, -1, os.path.basename(self.path))
-             self._iter = self._stream.__aiter__()
+        if self._stream is None:
+            self._stream = await self.ops.download(
+                self.path, self.pos, -1, os.path.basename(self.path)
+            )
+            self._iter = self._stream.__aiter__()
 
         if count == -1:
             res = self.buffer
             self.buffer = bytearray()
             async for chunk in self._stream:
                 res.extend(chunk)
+            self.pos += len(res)
             return bytes(res)
 
         while len(self.buffer) < count:
             try:
+                if self._iter is None:
+                    break
                 chunk = await anext(self._iter)
                 self.buffer.extend(chunk)
             except StopAsyncIteration:
@@ -228,12 +228,14 @@ class DCFSFileIO:
 
         res = self.buffer[:count]
         self.buffer = self.buffer[count:]
+        self.pos += len(res)
         return bytes(res)
 
     async def write(self, data: bytes) -> int:
         if "w" not in self.mode and "a" not in self.mode:
             raise IOError("File not open for writing")
         self.buffer.extend(data)
+        self.pos += len(data)
         return len(data)
 
     async def close(self) -> None:
@@ -244,13 +246,21 @@ class DCFSFileIO:
         self.closed = True
 
     async def seek(self, offset: int, whence: int = os.SEEK_SET) -> int:
-        # aioftp might use seek for resumes.
-        # Implementing seek for our stream-based system is hard.
-        # For now, let's just support SEEK_SET 0 or the end of current buffer.
-        if whence == os.SEEK_SET and offset == 0:
-            if hasattr(self, "_stream"):
-                del self._stream
-                del self._iter
-            self.buffer = bytearray()
-            return 0
-        raise NotImplementedError("Seek only supported for 0")
+        if whence == os.SEEK_SET:
+            if offset != self.pos:
+                self._stream = None
+                self._iter = None
+                self.buffer = bytearray()
+                self.pos = offset
+            return self.pos
+        elif whence == os.SEEK_CUR:
+            # We don't support moving CUR except by 0 for now to keep it simple,
+            # but usually it's used with 0 to get current pos.
+            self.pos += offset
+            if offset != 0:
+                self._stream = None
+                self._iter = None
+                self.buffer = bytearray()
+            return self.pos
+
+        raise NotImplementedError(f"Seek whence {whence} not supported")

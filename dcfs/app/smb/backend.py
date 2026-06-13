@@ -142,8 +142,14 @@ class DCFSSMBFile:
         self.buffer = bytearray()
 
     def read(self, size: int, offset: int):
+        if size <= 0:
+            return b""
+
         async def _read():
-            stream = await self.ops.download(self.path, offset, size, os.path.basename(self.path))
+            # end is inclusive in ops.download
+            stream = await self.ops.download(
+                self.path, offset, offset + size - 1, os.path.basename(self.path)
+            )
             data = b""
             async for chunk in stream:
                 data += chunk

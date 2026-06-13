@@ -5,7 +5,7 @@ import os
 from impacket import ntlm
 from impacket.smbserver import SimpleSMBServer
 
-from dcfs.config import Config
+from dcfs.config import DATA_DIR, Config
 from dcfs.core import Clients
 
 from .backend import DCFSSMBStorage
@@ -16,7 +16,7 @@ def create_smb_server(clients: Clients, config: Config) -> SimpleSMBServer:
     server = SimpleSMBServer(listenAddress=config.dcfs.smb.host, listenPort=config.dcfs.smb.port)
 
     # Create a safe directory for the SMB share to avoid sharing the root filesystem
-    share_path = os.path.join(os.getcwd(), ".smb_share")
+    share_path = os.path.join(DATA_DIR, ".smb_share")
     os.makedirs(share_path, exist_ok=True)
 
     # Add a README to the share to explain its current status

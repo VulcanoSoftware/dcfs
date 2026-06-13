@@ -220,7 +220,7 @@ class TestManagerApp:
 
         assert response.status_code == 200
         assert response.json() == {"message": "Document imported successfully"}
-        mock_channel_cache.reset.assert_called_once_with("/uploads/")
+        mock_channel_cache.reset.assert_called_once_with("/uploads")
         mock_ops.import_from_existing_file_message.assert_called_once()
 
     @pytest.mark.asyncio

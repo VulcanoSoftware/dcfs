@@ -6,7 +6,7 @@ from typing import AsyncIterator, Optional
 
 import aioftp
 
-from dcfs.app.utils import split_global_path
+from dcfs.app.utils import normalize_global_path, split_global_path
 from dcfs.core import Clients, Ops
 from dcfs.errors import FileOrDirectoryDoesNotExist
 
@@ -20,7 +20,15 @@ class DCFSPathIO(aioftp.AbstractPathIO):
 
     def _get_ops(self, path: pathlib.PurePosixPath) -> tuple[Optional[Ops], str]:
         path_str = str(path)
-        if path_str == "/" or path_str == ".":
+        if not path_str:
+            return None, "/"
+
+        try:
+            path_str = normalize_global_path(path_str)
+        except Exception:
+            logger.debug(f"Failed to normalize global path: {path_str}")
+
+        if path_str in (".", "/"):
             return None, "/"
 
         try:

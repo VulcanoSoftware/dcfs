@@ -4,7 +4,7 @@ import os
 import time
 from typing import Optional
 
-from dcfs.app.utils import split_global_path
+from dcfs.app.utils import normalize_global_path, split_global_path
 from dcfs.core import Clients, Ops
 from dcfs.errors import FileOrDirectoryDoesNotExist
 
@@ -19,8 +19,16 @@ class DCFSSMBStorage:
         self.loop = loop
 
     def _get_ops(self, path: str) -> tuple[Optional[Ops], str]:
-        path = path.replace("\\", "/")
-        if not path or path == "/" or path == ".":
+        if not path:
+            return None, "/"
+
+        try:
+            path = normalize_global_path(path)
+        except Exception:
+            path = path.replace("\\", "/")
+            logger.debug(f"Failed to normalize global path: {path}")
+
+        if path in (".", "/"):
             return None, "/"
 
         try:

@@ -1,11 +1,14 @@
+import asyncio
 import logging
 import os
 import stat
-from typing import Any, List, Optional
+import time
+from typing import Any, AsyncIterator, List, Optional
 
 import asyncssh
+import inspect
 
-from dcfs.app.utils import split_global_path
+from dcfs.app.utils import normalize_global_path, split_global_path
 from dcfs.core import Clients, Ops
 from dcfs.errors import FileOrDirectoryDoesNotExist
 
@@ -17,8 +20,16 @@ class DCFSSFTPHandler(asyncssh.SFTPServer):
         super().__init__(*args, **kwargs)
 
     def _get_ops(self, path_bytes: bytes) -> tuple[Optional[Ops], str]:
-        path = path_bytes.decode('utf-8')
-        if path == "." or path == "/" or not path:
+        path = path_bytes.decode("utf-8")
+        if not path:
+            return None, "/"
+
+        try:
+            path = normalize_global_path(path)
+        except Exception:
+            logger.debug(f"Failed to normalize global path: {path}")
+
+        if path in (".", "/"):
             return None, "/"
 
         try:
@@ -36,7 +47,7 @@ class DCFSSFTPHandler(asyncssh.SFTPServer):
         if ops is None:
             if sub_path == "/":
                 for client_name in self.clients:
-                    names.append(asyncssh.SFTPName(client_name))
+                    names.append(asyncssh.SFTPName(client_name.encode("utf-8")))
             return names
 
         if sub_path == "/":
@@ -45,9 +56,9 @@ class DCFSSFTPHandler(asyncssh.SFTPServer):
             directory = ops.cd(sub_path)
 
         for d in directory.find_dirs():
-            names.append(asyncssh.SFTPName(d.name))
+            names.append(asyncssh.SFTPName(d.name.encode("utf-8")))
         for f in directory.find_files():
-            names.append(asyncssh.SFTPName(f.name))
+            names.append(asyncssh.SFTPName(f.name.encode("utf-8")))
 
         return names
 
@@ -77,7 +88,7 @@ class DCFSSFTPHandler(asyncssh.SFTPServer):
 
         return asyncssh.SFTPAttrs(mode=mode, size=size, mtime=mtime, atime=mtime)
 
-    async def open(self, path: bytes, flags: int, attrs: asyncssh.SFTPAttrs) -> 'DCFSSFTPFile':  # type: ignore[override]
+    async def open(self, path: bytes, flags: int, attrs: asyncssh.SFTPAttrs) -> 'DCFSSFTPFileBase':  # type: ignore[override]
         ops, sub_path = self._get_ops(path)
         if ops is None:
             raise asyncssh.SFTPPermissionDenied("Cannot open root or client directory")
@@ -88,7 +99,53 @@ class DCFSSFTPHandler(asyncssh.SFTPServer):
         else:
             mode = "r"
 
-        return DCFSSFTPFile(ops, sub_path, mode)
+        expected_size: Optional[int] = None
+        if getattr(attrs, "size", None) is not None:
+            try:
+                expected_size = int(attrs.size)  # type: ignore[arg-type]
+            except Exception:
+                expected_size = None
+            if expected_size is not None and expected_size < 0:
+                expected_size = None
+
+        if mode == "w" and expected_size is not None:
+            return DCFSSFTPStreamingFile(ops, sub_path, expected_size)
+        return DCFSSFTPBufferedFile(ops, sub_path, mode)
+
+    async def read(self, file_obj: object, offset: int, size: int) -> bytes:  # type: ignore[override]
+        if isinstance(file_obj, DCFSSFTPFileBase):
+            return await file_obj.read(offset, size)
+        result = super().read(file_obj, offset, size)  # type: ignore[misc]
+        if inspect.isawaitable(result):
+            return await result
+        return result
+
+    async def write(self, file_obj: object, offset: int, data: bytes) -> int:  # type: ignore[override]
+        if isinstance(file_obj, DCFSSFTPFileBase):
+            return await file_obj.write(offset, data)
+        result = super().write(file_obj, offset, data)  # type: ignore[misc]
+        if inspect.isawaitable(result):
+            return await result
+        return result
+
+    async def close(self, file_obj: object) -> None:  # type: ignore[override]
+        if isinstance(file_obj, DCFSSFTPFileBase):
+            await file_obj.close()
+            return
+        result = super().close(file_obj)
+        if inspect.isawaitable(result):
+            await result
+
+    async def fstat(self, file_obj: object) -> asyncssh.SFTPAttrs:  # type: ignore[override]
+        if isinstance(file_obj, DCFSSFTPFileBase):
+            return await file_obj.fstat()
+
+        result = super().fstat(file_obj)
+        if inspect.isawaitable(result):
+            result = await result
+        if isinstance(result, os.stat_result):
+            return asyncssh.SFTPAttrs.from_local(result)
+        return result
 
     async def mkdir(self, path: bytes, attrs: asyncssh.SFTPAttrs) -> None:  # type: ignore[override]
         ops, sub_path = self._get_ops(path)
@@ -122,68 +179,173 @@ class DCFSSFTPHandler(asyncssh.SFTPServer):
             await ops_src.mv_file(sub_src, sub_dst)
 
     async def realpath(self, path: bytes) -> bytes:  # type: ignore[override]
-        return b"/" + path.lstrip(b"/")
+        try:
+            normalized = normalize_global_path(path.decode("utf-8"))
+            return normalized.encode("utf-8")
+        except Exception:
+            return b"/" + path.lstrip(b"/")
 
-class DCFSSFTPFile:
+class DCFSSFTPFileBase:
+    async def read(self, offset: int, size: int) -> bytes:
+        raise NotImplementedError
+
+    async def write(self, offset: int, data: bytes) -> int:
+        raise NotImplementedError
+
+    async def close(self) -> None:
+        raise NotImplementedError
+
+    async def fstat(self) -> asyncssh.SFTPAttrs:
+        raise NotImplementedError
+
+
+class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
     def __init__(self, ops: Ops, path: str, mode: str):
         self.ops = ops
         self.path = path
         self.mode = mode
         self.buffer = bytearray()
-        self.pos = 0
         self.closed = False
-        self._stream: Optional[Any] = None
-        self._iter: Optional[Any] = None
 
     async def read(self, offset: int, size: int) -> bytes:
         if "r" not in self.mode:
             raise asyncssh.SFTPPermissionDenied("File not open for reading")
 
-        if self._stream is None or offset != self.pos:
-            # We don't support random access well, so we restart if offset changes
-            self._stream = await self.ops.download(self.path, offset, -1, os.path.basename(self.path))
-            self._iter = self._stream.__aiter__()
-            self.buffer = bytearray()
-            self.pos = offset
-
-        while len(self.buffer) < size:
-            try:
-                if self._iter is None:
-                     break
-                chunk = await anext(self._iter)
-                self.buffer.extend(chunk)
-            except StopAsyncIteration:
-                break
-
-        data = self.buffer[:size]
-        self.buffer = self.buffer[size:]
-        self.pos += len(data)
+        end = -1 if size < 0 else offset + size - 1
+        stream = await self.ops.download(
+            self.path,
+            offset,
+            end,
+            os.path.basename(self.path),
+        )
+        data = bytearray()
+        async for chunk in stream:
+            data.extend(chunk)
         return bytes(data)
 
     async def write(self, offset: int, data: bytes) -> int:
         if "w" not in self.mode:
             raise asyncssh.SFTPPermissionDenied("File not open for writing")
 
-        if offset != self.pos:
-             logger.warning(f"Random access write at {offset} when pos is {self.pos}")
+        if offset > len(self.buffer):
+            self.buffer.extend(b"\x00" * (offset - len(self.buffer)))
 
-        self.buffer.extend(data)
-        self.pos += len(data)
+        end = offset + len(data)
+        if end <= len(self.buffer):
+            self.buffer[offset:end] = data
+        else:
+            if offset < len(self.buffer):
+                self.buffer[offset:] = data
+            else:
+                self.buffer.extend(data)
+
         return len(data)
 
     async def close(self) -> None:
         if self.closed:
             return
 
-        if "w" in self.mode and self.buffer:
-             await self.ops.upload_from_bytes(bytes(self.buffer), self.path)
+        if "w" in self.mode:
+            await self.ops.upload_from_bytes(bytes(self.buffer), self.path)
 
         self.closed = True
 
-    async def stat(self) -> asyncssh.SFTPAttrs:
+    async def fstat(self) -> asyncssh.SFTPAttrs:
+        if "w" in self.mode:
+            now = int(time.time())
+            return asyncssh.SFTPAttrs(
+                mode=stat.S_IFREG | 0o644,
+                size=len(self.buffer),
+                mtime=now,
+                atime=now,
+            )
+
         fd = await self.ops.desc(self.path, validate=False)
         fv = fd.get_latest_version()
         size = await self.ops._client.fc_repo.content_length(fv)
-        mode = stat.S_IFREG | 0o644
         mtime = int(fv.updated_at_timestamp / 1000)
-        return asyncssh.SFTPAttrs(mode=mode, size=size, mtime=mtime, atime=mtime)
+        return asyncssh.SFTPAttrs(
+            mode=stat.S_IFREG | 0o644,
+            size=size,
+            mtime=mtime,
+            atime=mtime,
+        )
+
+
+class DCFSSFTPStreamingFile(DCFSSFTPFileBase):
+    def __init__(self, ops: Ops, path: str, expected_size: int):
+        self.ops = ops
+        self.path = path
+        self.expected_size = expected_size
+        self.closed = False
+
+        self._queue: asyncio.Queue[Optional[bytes]] = asyncio.Queue(maxsize=32)
+        self._pending: dict[int, bytes] = {}
+        self._next_offset = 0
+        self._upload_task = asyncio.create_task(self._run_upload())
+
+    async def _stream(self) -> AsyncIterator[bytes]:
+        while True:
+            item = await self._queue.get()
+            if item is None:
+                return
+            if item:
+                yield item
+
+    async def _run_upload(self) -> None:
+        await self.ops.upload_from_stream(self._stream(), self.expected_size, self.path)
+
+    async def read(self, offset: int, size: int) -> bytes:
+        raise asyncssh.SFTPOpUnsupported("Streaming file handle does not support reads")
+
+    async def write(self, offset: int, data: bytes) -> int:
+        if self.closed:
+            raise asyncssh.SFTPFailure("File already closed")
+
+        if offset < 0:
+            raise asyncssh.SFTPFailure("Invalid offset")
+
+        if not data:
+            return 0
+
+        end = offset + len(data)
+        if end > self.expected_size:
+            raise asyncssh.SFTPFailure("Write exceeds expected file size")
+
+        existing = self._pending.get(offset)
+        if existing is not None and existing != data:
+            raise asyncssh.SFTPFailure("Overlapping writes are not supported")
+
+        self._pending[offset] = data
+
+        while True:
+            chunk = self._pending.pop(self._next_offset, None)
+            if chunk is None:
+                break
+            await self._queue.put(chunk)
+            self._next_offset += len(chunk)
+
+        return len(data)
+
+    async def close(self) -> None:
+        if self.closed:
+            return
+
+        self.closed = True
+
+        if self._next_offset != self.expected_size:
+            raise asyncssh.SFTPFailure(
+                f"Upload incomplete: received {self._next_offset} of {self.expected_size} bytes"
+            )
+
+        await self._queue.put(None)
+        await self._upload_task
+
+    async def fstat(self) -> asyncssh.SFTPAttrs:
+        now = int(time.time())
+        return asyncssh.SFTPAttrs(
+            mode=stat.S_IFREG | 0o644,
+            size=self.expected_size,
+            mtime=now,
+            atime=now,
+        )

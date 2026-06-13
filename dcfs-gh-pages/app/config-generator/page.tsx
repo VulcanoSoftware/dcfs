@@ -10,6 +10,8 @@ import {
   CardContent,
   Container,
   Paper,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from "@mui/material";
 import yaml from "js-yaml";
@@ -170,6 +172,9 @@ export default function ConfigGenerator() {
       },
     },
   });
+
+  const [os, setOs] = useState<"unix" | "windows">("unix");
+  const [dockerConfigPath, setDockerConfigPath] = useState("$(pwd)");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -429,7 +434,7 @@ export default function ConfigGenerator() {
 
     return `docker run --pull=always -it ${ports.join(
       " "
-    )} -v /path/to/config:/home/dcfs/.dcfs ghcr.io/vulcanosoftware/dcfs:latest`;
+    )} -v ${dockerConfigPath}:/home/dcfs/.dcfs ghcr.io/vulcanosoftware/dcfs:latest`;
   };
 
   const downloadConfig = () => {
@@ -943,6 +948,46 @@ export default function ConfigGenerator() {
                 </SyntaxHighlighter>
               </CardContent>
             </Card>
+
+            <Typography variant="h6" gutterBottom>
+              Docker Run Options
+            </Typography>
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="body2" color="text.secondary" gutterBottom>
+                Operating System
+              </Typography>
+              <ToggleButtonGroup
+                value={os}
+                exclusive
+                onChange={(_, newOs) => {
+                  if (newOs !== null) {
+                    setOs(newOs);
+                    if (newOs === "unix" && dockerConfigPath === "${PWD}") {
+                      setDockerConfigPath("$(pwd)");
+                    } else if (
+                      newOs === "windows" &&
+                      dockerConfigPath === "$(pwd)"
+                    ) {
+                      setDockerConfigPath("${PWD}");
+                    }
+                  }
+                }}
+                size="small"
+                fullWidth
+                sx={{ mb: 2 }}
+              >
+                <ToggleButton value="unix">Linux / macOS</ToggleButton>
+                <ToggleButton value="windows">Windows</ToggleButton>
+              </ToggleButtonGroup>
+
+              <ConfigTextField
+                label="Host Config Path"
+                value={dockerConfigPath}
+                onChange={(e) => setDockerConfigPath(e.target.value)}
+                fullWidth
+                helperText="Local path to your config.yaml directory"
+              />
+            </Box>
 
             <Typography variant="h6" gutterBottom>
               Docker Run Command

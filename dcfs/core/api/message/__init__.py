@@ -10,11 +10,13 @@ from dcfs.reqres import (
     DeleteMessagesReq,
     DownloadFileReq,
     DownloadFileResp,
+    EditMessageMediaReq,
     EditMessageTextReq,
     GetPinnedMessageReq,
     MessageResp,
     PinMessageReq,
     SearchMessageReq,
+    SendFileReq,
     SendTextReq,
 )
 from dcfs.utils.chained_async_iterator import ChainedAsyncIterator
@@ -26,6 +28,10 @@ logger = logging.getLogger(__name__)
 
 # Discord's bulk delete caps at 100 messages per request.
 DELETE_BATCH_SIZE = 100
+
+DISCORD_MSG_LIMIT = 4000
+OVERFLOW_SENTINEL = "DCFS_OVERFLOW"
+OVERFLOW_FILENAME = "overflow.json"
 
 rate = Rate(20, Duration.SECOND)
 bucket = InMemoryBucket([rate])
@@ -42,23 +48,62 @@ class MessageApi(MessageBroker):
 
     async def send_text(self, message: str) -> int:
         self.__try_acquire("MessageApi.send_text")
+
+        if len(message) <= DISCORD_MSG_LIMIT:
+            return (
+                await self.discord_api.next_bot.send_text(
+                    SendTextReq(chat=self.private_file_channel, text=message)
+                )
+            ).message_id
+
         return (
-            await self.discord_api.next_bot.send_text(
-                SendTextReq(chat=self.private_file_channel, text=message)
+            await self.discord_api.next_bot.send_file(
+                SendFileReq(
+                    chat=self.private_file_channel,
+                    name=OVERFLOW_FILENAME,
+                    caption=OVERFLOW_SENTINEL,
+                    buffer=message.encode("utf-8"),
+                )
             )
         ).message_id
 
     async def edit_message_text(self, message_id: int, message: str) -> int:
         self.__try_acquire("MessageApi.edit_message_text")
+
+        if len(message) <= DISCORD_MSG_LIMIT:
+            return (
+                await self.discord_api.next_bot.edit_message_text(
+                    EditMessageTextReq(
+                        chat=self.private_file_channel,
+                        message_id=message_id,
+                        text=message,
+                    )
+                )
+            ).message_id
+
         return (
-            await self.discord_api.next_bot.edit_message_text(
-                EditMessageTextReq(
+            await self.discord_api.next_bot.edit_message_media(
+                EditMessageMediaReq(
                     chat=self.private_file_channel,
                     message_id=message_id,
-                    text=message,
+                    name=OVERFLOW_FILENAME,
+                    text=OVERFLOW_SENTINEL,
+                    buffer=message.encode("utf-8"),
                 )
             )
         ).message_id
+
+    async def get_text(self, message: MessageResp) -> str:
+        """Retrieve the text content of a message, handling overflows."""
+        if message.text != OVERFLOW_SENTINEL or not message.document:
+            return message.text
+
+        logger.debug(f"Retrieving overflowed content for message {message.message_id}")
+        resp = await self.download_file(message.message_id, 0, -1)
+        full = bytearray()
+        async for chunk in resp.chunks:
+            full.extend(chunk)
+        return full.decode("utf-8")
 
     async def delete_messages(self, message_ids: Iterable[int]) -> None:
         """Best-effort deletion of channel messages.

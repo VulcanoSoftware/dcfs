@@ -68,7 +68,7 @@ class DiscordBotAPI(IDiscordClient):
         channel_id = self._parse_channel_id(req.chat)
         channel = await self._get_channel(channel_id)
         f = discord.File(io.BytesIO(req.buffer), filename=req.name)
-        msg = await channel.send(file=f)
+        msg = await channel.send(content=req.caption, file=f)
         return SendMessageResp(message_id=msg.id)
 
     async def get_messages(self, req: GetMessagesReq) -> GetMessagesResp:
@@ -148,7 +148,7 @@ class DiscordBotAPI(IDiscordClient):
         except discord.NotFound:
             raise MessageNotFound(req.message_id)
         f = discord.File(io.BytesIO(req.buffer), filename=req.name)
-        await msg.edit(attachments=[f])
+        await msg.edit(content=req.text, attachments=[f])
         return Message(message_id=msg.id)
 
     async def download_file(self, req: DownloadFileReq) -> DownloadFileResp:

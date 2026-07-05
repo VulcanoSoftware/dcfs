@@ -96,6 +96,7 @@ class SendFileReq(Chat, FileAttr):
 class EditMessageMediaReq(Chat, Message):
     buffer: bytes
     name: str
+    text: str = ""
 
 
 @dataclass

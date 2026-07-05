@@ -183,7 +183,8 @@ class DCMsgFDRepository(IFDRepository):
             self._cache_invalidate(fr.message_id)
             return DCFSFileDesc.empty(fr.name)
 
-        fd = DCFSFileDesc.from_dict(json.loads(message.text), name=fr.name)
+        text = await self._message_api.get_text(message)
+        fd = DCFSFileDesc.from_dict(json.loads(text), name=fr.name)
         self._cache_put(fr.message_id, fd)
 
         if not validate:

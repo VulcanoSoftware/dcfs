@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import pathlib
@@ -7,8 +8,10 @@ from typing import AsyncIterator, Optional
 import aioftp
 
 from dcfs.app.utils import normalize_global_path, split_global_path
+from dcfs.config import get_config
 from dcfs.core import Clients, Ops
 from dcfs.errors import FileOrDirectoryDoesNotExist
+from dcfs.utils.retry import _is_transient
 
 logger = logging.getLogger(__name__)
 
@@ -249,8 +252,40 @@ class DCFSFileIO:
     async def close(self) -> None:
         if self.closed:
             return
+
         if ("w" in self.mode or "a" in self.mode) and self.buffer:
-            await self.ops.upload_from_bytes(bytes(self.buffer), self.path)
+            data = bytes(self.buffer)
+            self.buffer.clear()
+
+            cfg = get_config().dcfs.download
+            max_retries = cfg.upload_max_retries
+            base_delay = cfg.upload_base_retry_delay
+
+            last_ex: Optional[Exception] = None
+            for attempt in range(max_retries):
+                try:
+                    await self.ops.upload_from_bytes(data, self.path)
+                    return
+                except Exception as ex:
+                    last_ex = ex
+                    if not _is_transient(ex):
+                        logger.error(
+                            f"Permanent upload failure for {self.path}: {ex}"
+                        )
+                        raise
+
+                    delay = base_delay * (2**attempt)
+                    logger.warning(
+                        f"Transient upload failure for {self.path} ({ex}). "
+                        f"Retry {attempt + 1}/{max_retries} in {delay:.1f}s..."
+                    )
+                    await asyncio.sleep(delay)
+
+            logger.error(
+                f"Upload failed for {self.path} after {max_retries} retries: {last_ex}",
+            )
+            raise last_ex  # type: ignore[misc]
+
         self.closed = True
 
     async def seek(self, offset: int, whence: int = os.SEEK_SET) -> int:

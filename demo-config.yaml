@@ -12,6 +12,9 @@ dcfs:
   download:
     chunk_size_kb: 1024
     download_max_concurrent_parts: 3
+    upload_max_retries: 10
+    upload_retry_interval: 5
+    upload_base_retry_delay: 2.0
   jwt:
     secret: your-secret-key
     algorithm: HS256

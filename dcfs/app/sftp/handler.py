@@ -9,10 +9,13 @@ import asyncssh
 import inspect
 
 from dcfs.app.utils import normalize_global_path, split_global_path
+from dcfs.config import get_config
 from dcfs.core import Clients, Ops
 from dcfs.errors import FileOrDirectoryDoesNotExist
+from dcfs.utils.retry import _is_transient
 
 logger = logging.getLogger(__name__)
+
 
 class DCFSSFTPHandler(asyncssh.SFTPServer):
     def __init__(self, clients: Clients, *args: Any, **kwargs: Any):
@@ -20,7 +23,7 @@ class DCFSSFTPHandler(asyncssh.SFTPServer):
         super().__init__(*args, **kwargs)
 
     def _get_ops(self, path_bytes: bytes) -> tuple[Optional[Ops], str]:
-        path = path_bytes.decode("utf-8")
+        path = path_bytes.decode("utf-8", errors="replace")
         if not path:
             return None, "/"
 
@@ -28,8 +31,13 @@ class DCFSSFTPHandler(asyncssh.SFTPServer):
             path = normalize_global_path(path)
         except Exception:
             logger.debug(f"Failed to normalize global path: {path}")
+            return None, "/"
 
         if path in (".", "/"):
+            return None, "/"
+
+        # Handle empty client name edge case
+        if path.startswith("//"):
             return None, "/"
 
         try:
@@ -38,7 +46,10 @@ class DCFSSFTPHandler(asyncssh.SFTPServer):
                 return Ops(self.clients[client_name]), "/" + sub_path.lstrip("/")
         except Exception:
             logger.debug(f"Failed to split global path: {path}")
-        return None, path
+            return None, "/"
+
+        # Client not found - treat as root listing
+        return None, "/"
 
     async def listdir(self, path: bytes) -> List[asyncssh.SFTPName]:  # type: ignore[override]
         ops, sub_path = self._get_ops(path)
@@ -206,6 +217,7 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
         self.mode = mode
         self.buffer = bytearray()
         self.closed = False
+        self._upload_task: Optional[asyncio.Task[None]] = None
 
     async def read(self, offset: int, size: int) -> bytes:
         if "r" not in self.mode:
@@ -245,10 +257,58 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
         if self.closed:
             return
 
-        if "w" in self.mode:
-            await self.ops.upload_from_bytes(bytes(self.buffer), self.path)
-
         self.closed = True
+
+        if "w" in self.mode and self.buffer:
+            # Fire-and-forget: upload happens in the background so the
+            # SFTP client does not hang waiting for the Discord upload.
+            data = bytes(self.buffer)
+            self.buffer.clear()
+            self._upload_task = asyncio.create_task(
+                self._do_upload(data)
+            )
+            self._upload_task.add_done_callback(self._on_upload_done)
+
+    async def _do_upload(self, data: bytes) -> None:
+        """Upload the buffered data with exponential backoff retry on transient errors."""
+        last_ex: Optional[Exception] = None
+        cfg = get_config().dcfs.download
+        for attempt in range(cfg.upload_max_retries):
+            try:
+                await self.ops.upload_from_bytes(data, self.path)
+                logger.info(f"Background upload completed for {self.path}")
+                return
+            except Exception as ex:
+                last_ex = ex
+                if not _is_transient(ex):
+                    logger.error(
+                        f"Permanent upload failure for {self.path}: {ex}"
+                    )
+                    return  # Don't raise — fire-and-forget, just log
+
+                delay = cfg.upload_base_retry_delay * (2**attempt)
+                logger.warning(
+                    f"Transient upload failure for {self.path} ({ex}). "
+                    f"Retry {attempt + 1}/{cfg.upload_max_retries} in {delay:.1f}s..."
+                )
+                await asyncio.sleep(delay)
+
+        logger.error(
+            f"Background upload failed for {self.path} after "
+            f"{cfg.upload_max_retries} retries: {last_ex}",
+            exc_info=last_ex,
+        )
+
+    def _on_upload_done(self, task: asyncio.Task[None]) -> None:
+        try:
+            exc = task.exception()
+            if exc is not None:
+                logger.error(
+                    f"Background upload failed for {self.path}: {exc}",
+                    exc_info=exc,
+                )
+        except asyncio.CancelledError:
+            logger.warning(f"Background upload cancelled for {self.path}")
 
     async def fstat(self) -> asyncssh.SFTPAttrs:
         if "w" in self.mode:
@@ -282,7 +342,12 @@ class DCFSSFTPStreamingFile(DCFSSFTPFileBase):
         self._queue: asyncio.Queue[Optional[bytes]] = asyncio.Queue(maxsize=32)
         self._pending: dict[int, bytes] = {}
         self._next_offset = 0
+        # Start the upload task immediately so it consumes from the queue
+        # concurrently with writes. The task is not awaited on close() —
+        # instead it runs to completion in the background so the SFTP
+        # client does not hang waiting for the Discord upload to finish.
         self._upload_task = asyncio.create_task(self._run_upload())
+        self._upload_task.add_done_callback(self._on_upload_done)
 
     async def _stream(self) -> AsyncIterator[bytes]:
         while True:
@@ -293,7 +358,65 @@ class DCFSSFTPStreamingFile(DCFSSFTPFileBase):
                 yield item
 
     async def _run_upload(self) -> None:
-        await self.ops.upload_from_stream(self._stream(), self.expected_size, self.path)
+        """
+        Upload the streamed data with retry on transient errors.
+
+        The lower-level Discord upload in DCMsgFileContentRepository already
+        retries individual part uploads.  This outer retry handles failures
+        that happen *before* any data is read from the queue (e.g.
+        file-descriptor creation failure).  Once data has been consumed from
+        the queue we cannot replay the stream, so we log the error and stop.
+        """
+        last_ex: Optional[Exception] = None
+        cfg = get_config().dcfs.download
+        for attempt in range(cfg.upload_max_retries):
+            try:
+                await self.ops.upload_from_stream(
+                    self._stream(), self.expected_size, self.path
+                )
+                return
+            except Exception as ex:
+                last_ex = ex
+                if not _is_transient(ex):
+                    logger.error(
+                        f"Permanent streaming upload failure for {self.path}: {ex}"
+                    )
+                    return  # Don't raise — fire-and-forget, just log
+
+                # If data has already been consumed from the queue we cannot
+                # retry because the queue items are gone.
+                # _next_offset tracks the last byte position successfully
+                # moved from _pending to _queue — if > 0, data was consumed.
+                if self._next_offset > 0:
+                    logger.error(
+                        f"Streaming upload failed after {self._next_offset} bytes "
+                        f"for {self.path}: {ex}.  Cannot retry — stream consumed."
+                    )
+                    return
+
+                delay = cfg.upload_base_retry_delay * (2**attempt)
+                logger.warning(
+                    f"Transient streaming upload failure for {self.path} ({ex}). "
+                    f"Retry {attempt + 1}/{cfg.upload_max_retries} in {delay:.1f}s..."
+                )
+                await asyncio.sleep(delay)
+
+        logger.error(
+            f"Streaming upload failed for {self.path} after "
+            f"{cfg.upload_max_retries} retries: {last_ex}",
+            exc_info=last_ex,
+        )
+
+    def _on_upload_done(self, task: asyncio.Task[None]) -> None:
+        try:
+            exc = task.exception()
+            if exc is not None:
+                logger.error(
+                    f"Background upload failed for {self.path}: {exc}",
+                    exc_info=exc,
+                )
+        except asyncio.CancelledError:
+            logger.warning(f"Background upload cancelled for {self.path}")
 
     async def read(self, offset: int, size: int) -> bytes:
         raise asyncssh.SFTPOpUnsupported("Streaming file handle does not support reads")
@@ -338,8 +461,10 @@ class DCFSSFTPStreamingFile(DCFSSFTPFileBase):
                 f"Upload incomplete: received {self._next_offset} of {self.expected_size} bytes"
             )
 
+        # Signal end-of-stream to the upload task and return immediately.
+        # The Discord upload continues in the background — we do NOT await
+        # the upload task here so the SFTP client doesn't hang at 100%.
         await self._queue.put(None)
-        await self._upload_task
 
     async def fstat(self) -> asyncssh.SFTPAttrs:
         now = int(time.time())

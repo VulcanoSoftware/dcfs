@@ -2,6 +2,7 @@ import asyncio
 import logging
 from typing import AsyncIterator, Generator, List, Optional
 
+from dcfs.config import get_config
 from dcfs.core.api import MessageApi
 from dcfs.core.model import DCFSFileVersion
 from dcfs.core.repository.interface import IFileContentRepository
@@ -11,37 +12,17 @@ from dcfs.reqres import (
     SentFileMessage,
     UploadableFileMessage,
 )
+from dcfs.utils.retry import _is_transient
 
 from .file_uploader import FileUploader, discord_max_file_size_bytes
 
+
+async def _empty_iterator() -> AsyncIterator[bytes]:
+    """Return an empty async iterator (no-op)."""
+    if False:
+        yield b""
+
 logger = logging.getLogger(__name__)
-RETRY_INTERVAL = 5  # seconds
-MAX_RETRIES = 10
-
-
-def _is_transient(ex: Exception) -> bool:
-    """Classify a Discord upload error as transient (retryable) or permanent."""
-    from dcfs.errors import FileSizeTooLarge
-
-    if isinstance(ex, FileSizeTooLarge):
-        return False
-
-    if hasattr(ex, "retry_after"):
-        return True
-
-    status = getattr(ex, "status", None)
-    if status is not None:
-        if status == 429:  # Rate Limited
-            return True
-        if 500 <= status < 600:  # Server errors
-            return True
-        if 400 <= status < 500:
-            return False
-
-    if isinstance(ex, (asyncio.TimeoutError, ConnectionError, IOError)):
-        return True
-
-    return False
 
 
 class DCMsgFileContentRepository(IFileContentRepository):
@@ -63,7 +44,8 @@ class DCMsgFileContentRepository(IFileContentRepository):
             retries = 0
             last_ex: Optional[Exception] = None
 
-            while retries < MAX_RETRIES:
+            cfg = get_config().dcfs.download
+            while retries < cfg.upload_max_retries:
                 try:
                     resp = await uploader.send(chat_id)
                     return SentFileMessage(message_id=resp.message_id, size=part_size)
@@ -78,13 +60,14 @@ class DCMsgFileContentRepository(IFileContentRepository):
                     retries += 1
                     logger.warning(
                         f"Transient upload failure for part {part_num} ({ex}). "
-                        f"Retry {retries}/{MAX_RETRIES} in {RETRY_INTERVAL}s..."
+                        f"Retry {retries}/{cfg.upload_max_retries} in {cfg.upload_retry_interval}s..."
                     )
                     uploader.reset_buffer()
-                    await asyncio.sleep(RETRY_INTERVAL)
+                    await asyncio.sleep(cfg.upload_retry_interval)
 
             raise TransientUploadError(
-                uploader._file_name, MAX_RETRIES, last_ex or Exception("Unknown error")
+                uploader._file_name, cfg.upload_max_retries,
+                last_ex or Exception("Unknown error")
             )
         finally:
             semaphore.release()
@@ -138,9 +121,10 @@ class DCMsgFileContentRepository(IFileContentRepository):
         return list(await asyncio.gather(*tasks))
 
     async def update(self, message_id: int, buffer: bytes, name: str) -> int:
+        cfg = get_config().dcfs.download
         retries = 0
         last_ex: Optional[Exception] = None
-        while retries < MAX_RETRIES:
+        while retries < cfg.upload_max_retries:
             try:
                 resp = await self._message_api.discord_api.bot.edit_message_media(
                     EditMessageMediaReq(
@@ -159,11 +143,11 @@ class DCMsgFileContentRepository(IFileContentRepository):
 
                 retries += 1
                 logger.warning(
-                    f"Transient update failure ({ex}). Retry {retries}/{MAX_RETRIES} in {RETRY_INTERVAL}s..."
+                    f"Transient update failure ({ex}). Retry {retries}/{cfg.upload_max_retries} in {cfg.upload_retry_interval}s..."
                 )
-                await asyncio.sleep(RETRY_INTERVAL)
+                await asyncio.sleep(cfg.upload_retry_interval)
 
-        raise TransientUploadError(name, MAX_RETRIES, last_ex or Exception("Unknown error"))
+        raise TransientUploadError(name, cfg.upload_max_retries, last_ex or Exception("Unknown error"))
 
     def _get_file_part_to_download(
         self, fv: DCFSFileVersion, begin: int, end: int
@@ -184,28 +168,147 @@ class DCMsgFileContentRepository(IFileContentRepository):
             current_pos += part_size
 
     async def get(self, fv: DCFSFileVersion, begin: int, end: int, name: str) -> AsyncIterator[bytes]:
-        async def _download_one(message_id: int, part_begin: int, part_end: int):
-            async with self._download_semaphore:
-                return await self._message_api.download_file(
-                    message_id, part_begin, part_end
-                )
+        parts = list(self._get_file_part_to_download(fv, begin, end))
+        n_parts = len(parts)
 
-        tasks = [
-            asyncio.create_task(_download_one(msg_id, part_b, part_e))
-            for msg_id, part_b, part_e in self._get_file_part_to_download(
-                fv, begin, end
-            )
+        if n_parts == 0:
+            return _empty_iterator()
+
+        return self._stream_parts(parts, n_parts)
+
+    async def _stream_parts(
+        self,
+        parts: list[tuple[int, int, int]],
+        n_parts: int,
+    ) -> AsyncIterator[bytes]:
+        """Stream parts in order via a queue-based producer/consumer pattern.
+
+        Producer tasks download each part from Discord's CDN and push
+        ``(part_index, chunk)`` tuples to a shared queue. The consumer
+        loop reads from the queue and yields chunks **in part order** so
+        that the first byte reaches the WebDAV client as fast as possible
+        (≈120 ms instead of waiting for the entire 8 MB first part).
+
+        Out-of-order chunks are buffered and drained once their part
+        becomes the current one. On exit or error all producer tasks are
+        cancelled.
+        """
+        logger.info(
+            "_stream_parts: starting %d parts, semaphore=%d",
+            n_parts,
+            self._download_semaphore._value,  # type: ignore[attr-defined]
+        )
+
+        queue: asyncio.Queue["tuple[int, Optional[bytes]]"] = asyncio.Queue(
+            maxsize=64
+        )
+
+        # Shared dict: producer stores its exception HERE before the
+        # ``await`` in ``finally`` so the consumer can see it immediately
+        # after receiving the sentinel, without waiting for the Task to
+        # store the exception (which only happens *after* ``finally``
+        # completes).  This avoids a race condition that would otherwise
+        # silently swallow the error and leave the consumer waiting
+        # forever for data from a failed part → WinSCP timeout.
+        _producer_errors: dict[int, Exception] = {}
+
+        async def _producer(
+            part_idx: int, message_id: int, part_begin: int, part_end: int
+        ) -> None:
+            """Download one part, pushing chunks to the shared queue."""
+            try:
+                async with self._download_semaphore:
+                    logger.debug(
+                        "_producer %d: acquired semaphore, downloading msg=%d bytes=%d-%d",
+                        part_idx, message_id, part_begin, part_end,
+                    )
+                    resp = await self._message_api.download_file(
+                        message_id, part_begin, part_end
+                    )
+                    chunk_count = 0
+                    async for chunk in resp.chunks:
+                        await queue.put((part_idx, chunk))
+                        chunk_count += 1
+                    logger.debug(
+                        "_producer %d: finished, %d chunks", part_idx, chunk_count
+                    )
+            except asyncio.CancelledError:
+                logger.debug("_producer %d: cancelled", part_idx)
+                raise
+            except Exception as ex:
+                logger.error("_producer %d: error: %s", part_idx, ex)
+                _producer_errors[part_idx] = ex  # store before finally
+                raise
+            finally:
+                await queue.put((part_idx, None))
+
+        producers = [
+            asyncio.create_task(_producer(idx, msg_id, part_b, part_e))
+            for idx, (msg_id, part_b, part_e) in enumerate(parts)
         ]
 
-        async def _ordered_stream():
-            try:
-                for task in tasks:
-                    result = await task
-                    async for chunk in result.chunks:
-                        yield chunk
-            finally:
-                for task in tasks:
-                    if not task.done():
-                        task.cancel()
+        buffers: dict[int, list[bytes]] = {}
+        finished: set[int] = set()
+        next_idx = 0
+        total_yielded = 0
+        t_start = asyncio.get_event_loop().time()
 
-        return _ordered_stream()
+        try:
+            while next_idx < n_parts:
+                # Drain any already-buffered chunks for the next part.
+                if next_idx in buffers and buffers[next_idx]:
+                    buf_chunk = buffers[next_idx].pop(0)
+                    total_yielded += len(buf_chunk)
+                    yield buf_chunk
+                    continue
+
+                # If the next part is fully finished with no buffered
+                # data, advance to the following part.
+                if next_idx in finished:
+                    logger.debug("_stream_parts: part %d finished, advancing to %d", next_idx, next_idx + 1)
+                    next_idx += 1
+                    continue
+
+                # Wait for the next chunk from any producer.
+                part_idx, chunk = await queue.get()
+
+                if chunk is None:
+                    finished.add(part_idx)
+                    # Check the shared error dict BEFORE checking
+                    # task.exception() to avoid a race condition where
+                    # ``finally`` yields to the event loop via await
+                    # before the task has stored the exception.
+                    if part_idx in _producer_errors:
+                        exc = _producer_errors[part_idx]
+                        logger.error(
+                            "_stream_parts: producer %d failed: %s", part_idx, exc
+                        )
+                        raise exc
+                    # Also check task.exception() as a fallback for
+                    # exceptions that bypass the ``except`` clause
+                    # (e.g. GeneratorExit from aclose).
+                    # task.exception() returns BaseException | None,
+                    # but we only care about Exception subclasses.
+                    task_exc = producers[part_idx].exception()
+                    if task_exc is not None:
+                        logger.error(
+                            "_stream_parts: producer %d failed (late): %s", part_idx, task_exc
+                        )
+                        if isinstance(task_exc, Exception):
+                            raise task_exc
+                else:
+                    if part_idx == next_idx:
+                        total_yielded += len(chunk)
+                        yield chunk
+                    else:
+                        buffers.setdefault(part_idx, []).append(chunk)
+
+        finally:
+            t_end = asyncio.get_event_loop().time()
+            logger.info(
+                "_stream_parts: done in %.2fs, yielded %d bytes across %d parts",
+                t_end - t_start, total_yielded, n_parts,
+            )
+            for t in producers:
+                if not t.done():
+                    t.cancel()

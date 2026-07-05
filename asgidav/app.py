@@ -144,17 +144,30 @@ def create_app(
             if range_header.startswith("bytes="):
                 is_range_request = True
                 range_value = range_header[len("bytes=") :]
-                if "-" in range_value:
-                    begin_str, end_str = range_value.split("-", 1)
-                    if begin_str:
-                        begin = int(begin_str.strip())
-                    if end_str:
-                        end = int(end_str.strip())
-                else:
-                    begin = int(range_value)
+                try:
+                    if "-" in range_value:
+                        begin_str, end_str = range_value.split("-", 1)
+                        if begin_str:
+                            begin = max(0, int(begin_str.strip()))
+                        if end_str:
+                            end = max(-1, int(end_str.strip()))
+                    else:
+                        begin = max(0, int(range_value))
+                except (ValueError, TypeError):
+                    begin, end = 0, -1
+                    is_range_request = False
+
+        logger.info("GET %s begin=%d end=%d range=%s", path, begin, end, is_range_request)
 
         if member := await get_member(path):
             if isinstance(member, Resource):
+                # Validate range: if begin > 0 but end is less than begin, reset to full file
+                if is_range_request and end != -1 and begin > end:
+                    logger.info("GET %s: invalid range, reset to full file", path)
+                    begin, end = 0, -1
+                    is_range_request = False
+
+                t0 = asyncio.get_event_loop().time()
                 content, media_type, last_modified, content_length = (
                     await asyncio.gather(
                         member.get_content(begin, end),
@@ -162,6 +175,11 @@ def create_app(
                         member.last_modified(),
                         member.content_length(),
                     )
+                )
+                t1 = asyncio.get_event_loop().time()
+                logger.info(
+                    "GET %s: content ready in %.2fs (len=%d, type=%s)",
+                    path, t1 - t0, content_length, media_type,
                 )
 
                 headers = {
@@ -187,12 +205,20 @@ def create_app(
 
             raise ValueError("Expected a Resource, got a Folder")
 
+        logger.warning("GET %s: member not found (404)", path)
         return NOT_FOUND
 
     @app.put("/{path:path}")
     async def put(request: Request, path: str):
-        content_length = request.headers.get("Content-Length", "0")
-        size = int(content_length)
+        try:
+            raw_length = request.headers.get("Content-Length", "0").strip()
+            size = int(raw_length) if raw_length else 0
+            if size < 0:
+                size = 0
+        except (ValueError, TypeError):
+            logger.warning(f"PUT {path}: invalid Content-Length '{request.headers.get('Content-Length', '')}'")
+            size = 0
+
         try:
             if not (member := await get_member(path)):
                 member = await (await root()).create_empty_resource(path)

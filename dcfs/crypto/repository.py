@@ -24,8 +24,9 @@ just with the ciphertext sizes substituted.
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, AsyncGenerator, List, Optional, cast
 
 from dcfs.core.repository.interface import IFileContentRepository
 from dcfs.crypto.cipher import (
@@ -155,15 +156,7 @@ class EncryptingFileContentRepository(IFileContentRepository):
         end: int,
         name: str,
     ) -> FileContent:
-        logger.warning(
-            "get: fv.size=%d fv.part_sizes=%s fv.message_ids=%s name=%s begin=%d end=%d",
-            fv.size,
-            fv.part_sizes,
-            fv.message_ids,
-            name,
-            begin,
-            end,
-        )
+
         if fv.size <= 0:
             # Empty file -- the inner repo returns an empty iterator; we
             # forward that as-is. The plaintext range is meaningless here.
@@ -282,22 +275,21 @@ class EncryptingFileContentRepository(IFileContentRepository):
         we raise rather than silently falling back -- otherwise a wrong master
         key would be indistinguishable from "this is just a plaintext file".
         """
-        logger.warning(
-            "_detect: fv.size=%d fv.part_sizes=%s fv.message_ids=%s name=%s",
-            fv.size,
-            fv.part_sizes,
-            fv.message_ids,
-            name,
-        )
+
         hit, cached = self._cache.lookup(fv.id)
         if hit:
+            logger.debug("_detect cache HIT for %s (fv.id=%s)", name, fv.id)
             return cached
+
+        logger.info("_detect cache MISS for %s (fv.id=%s, size=%d)", name, fv.id, fv.size)
 
         # Files shorter than the magic itself can't be encrypted by us.
         if fv.size < len(MAGIC):
+            logger.debug("_detect: file too small for magic, treating as plaintext")
             self._cache.put(fv.id, None)
             return None
 
+        t0 = asyncio.get_event_loop().time()
         probe_target = min(HEADER_SIZE, fv.size)
         # Inner ``get`` uses inclusive ends, so the last byte index is one
         # less than the count.
@@ -307,8 +299,18 @@ class EncryptingFileContentRepository(IFileContentRepository):
             buf += piece
             if len(buf) >= probe_target:
                 break
+        # If the inner stream has unread data we close it to release any
+        # underlying tasks / connections early.  The stream is an async
+        # generator whose ``finally`` block cancels remaining tasks.
+        # _ordered_stream() is an async generator at runtime (has ``yield``),
+        # so .aclose() works even though FileContent is typed as
+        # AsyncIterator[bytes].
+        await cast(AsyncGenerator[bytes, None], stream).aclose()
+        t1 = asyncio.get_event_loop().time()
+        logger.info("_detect: downloaded %d bytes in %.2fs", len(buf), t1 - t0)
 
         if len(buf) < len(MAGIC) or bytes(buf[: len(MAGIC)]) != MAGIC:
+            logger.debug("_detect: no DCFS magic, treating as plaintext")
             self._cache.put(fv.id, None)
             return None
 
@@ -328,6 +330,7 @@ class EncryptingFileContentRepository(IFileContentRepository):
 
         entry = (header, file_key)
         self._cache.put(fv.id, entry)
+        logger.info("_detect: file IS encrypted (chunk_size=%d)", header.chunk_size)
         return entry
 
 

@@ -5,8 +5,10 @@ import time
 from typing import Optional
 
 from dcfs.app.utils import normalize_global_path, split_global_path
+from dcfs.config import get_config
 from dcfs.core import Clients, Ops
 from dcfs.errors import FileOrDirectoryDoesNotExist
+from dcfs.utils.retry import _is_transient
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +61,32 @@ class DCFSSMBStorage:
 
         for d in directory.find_dirs():
             results.append(self._make_stat(d.name, is_dir=True, mtime=d.modified_at_timestamp/1000))
-        for f in directory.find_files():
-            results.append(self._make_stat(f.name, is_dir=False))
+        # Fetch file sizes in parallel via a single async task
+        file_refs = list(directory.find_files())
+        if file_refs:
+            async def _fetch_sizes():
+                tasks = []
+                for fr in file_refs:
+                    tasks.append(
+                        asyncio.create_task(
+                            self._file_size_for_ref(ops, sub_path, fr.name)
+                        )
+                    )
+                return await asyncio.gather(*tasks)
+
+            future = asyncio.run_coroutine_threadsafe(
+                _fetch_sizes(), self.loop
+            )
+            try:
+                sizes = future.result()
+            except Exception as ex:
+                logger.warning(f"Failed to fetch file sizes for listing: {ex}")
+                sizes = [0] * len(file_refs)
+
+            for fr, size in zip(file_refs, sizes):
+                results.append(
+                    self._make_stat(fr.name, is_dir=False, size=size)
+                )
 
         return results
 
@@ -102,6 +128,17 @@ class DCFSSMBStorage:
                 return self._make_stat(os.path.basename(path), is_dir=False, size=size, mtime=mtime)
             except Exception:
                  raise OSError(f"File not found: {path}")
+
+    @staticmethod
+    async def _file_size_for_ref(ops: Ops, sub_path: str, file_name: str) -> int:
+        """Get the content length for a file (async helper for listPath)."""
+        try:
+            file_path = sub_path.rstrip("/") + "/" + file_name
+            fd = await ops.desc(file_path, validate=False)
+            fv = fd.get_latest_version()
+            return await ops._client.fc_repo.content_length(fv)
+        except Exception:
+            return 0
 
     def openFile(self, path: str, mode: str):
         ops, sub_path = self._get_ops(path)
@@ -176,5 +213,37 @@ class DCFSSMBFile:
 
     def close(self):
         if ("w" in self.mode or "a" in self.mode) and self.buffer:
-             future = asyncio.run_coroutine_threadsafe(self.ops.upload_from_bytes(bytes(self.buffer), self.path), self.loop)
-             future.result()
+            data = bytes(self.buffer)
+            self.buffer.clear()
+
+            cfg = get_config().dcfs.download
+            max_retries = cfg.upload_max_retries
+            base_delay = cfg.upload_base_retry_delay
+
+            last_ex: Optional[Exception] = None
+            for attempt in range(max_retries):
+                try:
+                    future = asyncio.run_coroutine_threadsafe(
+                        self.ops.upload_from_bytes(data, self.path), self.loop
+                    )
+                    future.result()  # Wait for Discord upload to finish
+                    return
+                except Exception as ex:
+                    last_ex = ex
+                    if not _is_transient(ex):
+                        logger.error(
+                            f"Permanent upload failure for {self.path}: {ex}"
+                        )
+                        raise
+
+                    delay = base_delay * (2**attempt)
+                    logger.warning(
+                        f"Transient upload failure for {self.path} ({ex}). "
+                        f"Retry {attempt + 1}/{max_retries} in {delay:.1f}s..."
+                    )
+                    time.sleep(delay)
+
+            logger.error(
+                f"Upload failed for {self.path} after {max_retries} retries: {last_ex}",
+            )
+            raise last_ex  # type: ignore[misc]

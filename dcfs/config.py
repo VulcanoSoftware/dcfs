@@ -16,6 +16,9 @@ CONFIG_FILE = os.environ.get("DCFS_CONFIG_FILE", "config.yaml")
 class DownloadConfig:
     chunk_size_kb: int
     download_max_concurrent_parts: int = 3
+    upload_max_retries: int = 10
+    upload_retry_interval: int = 5
+    upload_base_retry_delay: float = 2.0
 
     @classmethod
     def from_dict(cls, data: dict) -> Self:
@@ -23,6 +26,13 @@ class DownloadConfig:
             chunk_size_kb=data["chunk_size_kb"],
             download_max_concurrent_parts=int(
                 data.get("download_max_concurrent_parts", 3)
+            ),
+            upload_max_retries=int(data.get("upload_max_retries", 10)),
+            upload_retry_interval=int(
+                data.get("upload_retry_interval", 5)
+            ),
+            upload_base_retry_delay=float(
+                data.get("upload_base_retry_delay", 2.0)
             ),
         )
 

@@ -52,6 +52,9 @@ interface ConfigData {
     }[];
     download: {
       chunk_size_kb: number;
+      upload_max_retries?: number;
+      upload_retry_interval?: number;
+      upload_base_retry_delay?: number;
     };
     jwt: {
       secret: string;
@@ -88,6 +91,9 @@ type ConfigUpdatePaths = {
   "discord.channels": ChannelConfig[];
   "dcfs.users": { username: string; password: string }[];
   "dcfs.download.chunk_size_kb": number;
+  "dcfs.download.upload_max_retries": number;
+  "dcfs.download.upload_retry_interval": number;
+  "dcfs.download.upload_base_retry_delay": number;
   "dcfs.jwt.secret": string;
   "dcfs.jwt.algorithm": string;
   "dcfs.jwt.life": number;
@@ -136,6 +142,9 @@ export default function ConfigGenerator() {
       ],
       download: {
         chunk_size_kb: 1024,
+        upload_max_retries: 10,
+        upload_retry_interval: 5,
+        upload_base_retry_delay: 2.0,
       },
       jwt: {
         secret: "",
@@ -199,6 +208,12 @@ export default function ConfigGenerator() {
           }[];
         } else if (path === "dcfs.download.chunk_size_kb") {
           newConfig.dcfs.download.chunk_size_kb = value as number;
+        } else if (path === "dcfs.download.upload_max_retries") {
+          newConfig.dcfs.download.upload_max_retries = value as number;
+        } else if (path === "dcfs.download.upload_retry_interval") {
+          newConfig.dcfs.download.upload_retry_interval = value as number;
+        } else if (path === "dcfs.download.upload_base_retry_delay") {
+          newConfig.dcfs.download.upload_base_retry_delay = value as number;
         } else if (path === "dcfs.jwt.secret") {
           newConfig.dcfs.jwt.secret = value as string;
         } else if (path === "dcfs.jwt.algorithm") {
@@ -850,6 +865,42 @@ export default function ConfigGenerator() {
                     updateConfig("dcfs.server.port", parseInt(e.target.value))
                   }
                   width={120}
+                />
+              </FieldRow>
+
+              <Typography variant="h6" sx={{ mt: 2, mb: 1 }}>
+                Upload Retry
+              </Typography>
+              <FieldRow>
+                <ConfigTextField
+                  label="Max Retries"
+                  type="number"
+                  value={config.dcfs.download.upload_max_retries ?? 10}
+                  onChange={(e) =>
+                    updateConfig("dcfs.download.upload_max_retries", parseInt(e.target.value) || 10)
+                  }
+                  width={120}
+                  helperText="Number of retry attempts"
+                />
+                <ConfigTextField
+                  label="Retry Interval"
+                  type="number"
+                  value={config.dcfs.download.upload_retry_interval ?? 5}
+                  onChange={(e) =>
+                    updateConfig("dcfs.download.upload_retry_interval", parseInt(e.target.value) || 5)
+                  }
+                  width={120}
+                  helperText="Seconds between retries"
+                />
+                <ConfigTextField
+                  label="Backoff Base"
+                  type="number"
+                  value={config.dcfs.download.upload_base_retry_delay ?? 2.0}
+                  onChange={(e) =>
+                    updateConfig("dcfs.download.upload_base_retry_delay", parseFloat(e.target.value) || 2.0)
+                  }
+                  width={120}
+                  helperText="Exponential backoff base (s)"
                 />
               </FieldRow>
               <Typography variant="body2" color="text.secondary">

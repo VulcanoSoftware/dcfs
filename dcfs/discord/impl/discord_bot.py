@@ -8,7 +8,7 @@ import discord
 
 from dcfs.config import Config
 from dcfs.discord.interface import IDiscordClient
-from dcfs.errors import TechnicalError, UnDownloadableMessage
+from dcfs.errors import MessageNotFound, TechnicalError, UnDownloadableMessage
 from dcfs.reqres import (
     DeleteMessagesReq,
     Document,
@@ -92,34 +92,60 @@ class DiscordBotAPI(IDiscordClient):
     async def pin_message(self, req: PinMessageReq) -> None:
         channel_id = self._parse_channel_id(req.chat)
         channel = await self._get_channel(channel_id)
-        msg = await channel.fetch_message(req.message_id)
+        try:
+            msg = await channel.fetch_message(req.message_id)
+        except discord.NotFound:
+            raise MessageNotFound(req.message_id)
         await msg.pin()
 
     async def delete_messages(self, req: DeleteMessagesReq) -> None:
         channel_id = self._parse_channel_id(req.chat)
         channel = await self._get_channel(channel_id)
         if len(req.message_ids) == 1:
-            msg = await channel.fetch_message(req.message_ids[0])
+            try:
+                msg = await channel.fetch_message(req.message_ids[0])
+            except discord.NotFound:
+                raise MessageNotFound(req.message_ids[0])
             await msg.delete()
             return
 
         to_delete = []
         for m_id in req.message_ids:
-            msg = await channel.fetch_message(m_id)
-            to_delete.append(msg)
-        await channel.delete_messages(to_delete)
+            try:
+                msg = await channel.fetch_message(m_id)
+                to_delete.append(msg)
+            except discord.NotFound:
+                logger.warning(
+                    f"Message {m_id} not found, skipping in batch delete"
+                )
+                continue
+        if to_delete:
+            if len(to_delete) == 1:
+                await to_delete[0].delete()
+            else:
+                await channel.delete_messages(to_delete)
+        else:
+            logger.warning(
+                f"None of the {len(req.message_ids)} messages to delete were found"
+            )
 
     async def edit_message_text(self, req: EditMessageTextReq) -> SendMessageResp:
         channel_id = self._parse_channel_id(req.chat)
         channel = await self._get_channel(channel_id)
-        msg = await channel.fetch_message(req.message_id)
+        try:
+            msg = await channel.fetch_message(req.message_id)
+        except discord.NotFound:
+            raise MessageNotFound(req.message_id)
         await msg.edit(content=req.text)
         return SendMessageResp(message_id=msg.id)
 
     async def edit_message_media(self, req: EditMessageMediaReq) -> Message:
         channel_id = self._parse_channel_id(req.chat)
         channel = await self._get_channel(channel_id)
-        msg = await channel.fetch_message(req.message_id)
+        try:
+            msg = await channel.fetch_message(req.message_id)
+        except discord.NotFound:
+            raise MessageNotFound(req.message_id)
         f = discord.File(io.BytesIO(req.buffer), filename=req.name)
         await msg.edit(attachments=[f])
         return Message(message_id=msg.id)
@@ -127,26 +153,95 @@ class DiscordBotAPI(IDiscordClient):
     async def download_file(self, req: DownloadFileReq) -> DownloadFileResp:
         channel_id = self._parse_channel_id(req.chat)
         channel = await self._get_channel(channel_id)
-        msg = await channel.fetch_message(req.message_id)
+        try:
+            msg = await channel.fetch_message(req.message_id)
+        except discord.NotFound:
+            raise MessageNotFound(req.message_id)
         if not msg.attachments:
             raise UnDownloadableMessage(req.message_id)
         attachment = msg.attachments[0]
-        
+
         session = await self._ensure_http_session()
-        
+
+        # Build optional Range header so the CDN only streams the requested
+        # byte range (critical for download_file_parallel sub-requests).
+        should_range = req.begin > 0 or req.end != -1
+        url = attachment.url
+        headers = {}
+        if should_range:
+            range_end = "" if req.end == -1 else str(req.end)
+            headers["Range"] = f"bytes={req.begin}-{range_end}"
+
+        logger.info(
+            "CDN download: msg=%d range=%d-%d should_range=%s attach_size=%d",
+            req.message_id, req.begin, req.end, should_range, attachment.size,
+        )
+
+        # Timeout: connect within 15s, download within 120s. Without a
+        # timeout a slow or hung CDN connection would cause the whole
+        # WebDAV GET handler to hang indefinitely, making WinSCP / the
+        # client time out with a generic "connection timed out" error.
+        timeout = aiohttp.ClientTimeout(
+            connect=15.0,
+            total=120.0,
+        )
+        t0 = asyncio.get_event_loop().time()
+        response = await session.get(url, headers=headers, timeout=timeout)
+        t1 = asyncio.get_event_loop().time()
+        response.raise_for_status()
+
+        # Determine whether the CDN honoured the Range header.
+        # 206 Partial Content means it did; 200 OK means it ignored it.
+        range_honoured = should_range and response.status == 206
+        logger.info(
+            "CDN response: status=%d range_honoured=%s connect_time=%.2fs",
+            response.status, range_honoured, t1 - t0,
+        )
+
         async def _chunk_generator():
-            async with session.get(attachment.url) as response:
-                current_pos = 0
-                async for chunk in response.content.iter_chunked(CHUNK_SIZE):
-                    chunk_len = len(chunk)
-                    if req.begin <= current_pos + chunk_len and (req.end == -1 or current_pos <= req.end):
-                        b_in_chunk = max(0, req.begin - current_pos)
-                        if req.end == -1:
-                            e_in_chunk = chunk_len
-                        else:
-                            e_in_chunk = min(chunk_len, req.end - current_pos + 1)
-                        yield chunk[b_in_chunk:e_in_chunk]
-                    current_pos += chunk_len
+            try:
+                if range_honoured:
+                    # CDN sent only the requested bytes.
+                    chunk_count = 0
+                    async for chunk in response.content.iter_chunked(
+                        CHUNK_SIZE
+                    ):
+                        yield chunk
+                        chunk_count += 1
+                    logger.debug(
+                        "CDN chunk generator (206): %d chunks total", chunk_count
+                    )
+                elif should_range:
+                    # CDN ignored the Range header and sent the full
+                    # attachment. Slice in-memory to honour the contract.
+                    full = bytearray()
+                    async for chunk in response.content.iter_chunked(
+                        CHUNK_SIZE
+                    ):
+                        full += chunk
+                    end = req.end if req.end != -1 else len(full) - 1
+                    payload = full[req.begin : end + 1]
+                    logger.info(
+                        "CDN fallback (200): downloaded %d bytes, sliced to %d",
+                        len(full), len(payload),
+                    )
+                    # Yield in CHUNK_SIZE pieces so downstream consumers
+                    # don't have to hold the entire payload at once.
+                    for start in range(0, len(payload), CHUNK_SIZE):
+                        yield payload[start : start + CHUNK_SIZE]
+                else:
+                    # Full file requested without Range.
+                    chunk_count = 0
+                    async for chunk in response.content.iter_chunked(
+                        CHUNK_SIZE
+                    ):
+                        yield chunk
+                        chunk_count += 1
+                    logger.debug(
+                        "CDN chunk generator (no range): %d chunks total", chunk_count
+                    )
+            finally:
+                response.close()
 
         return DownloadFileResp(chunks=_chunk_generator(), size=attachment.size)
 

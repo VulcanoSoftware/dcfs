@@ -50,18 +50,15 @@ class MessageApi(MessageBroker):
 
     async def edit_message_text(self, message_id: int, message: str) -> int:
         self.__try_acquire("MessageApi.edit_message_text")
-        try:
-            return (
-                await self.discord_api.next_bot.edit_message_text(
-                    EditMessageTextReq(
-                        chat=self.private_file_channel,
-                        message_id=message_id,
-                        text=message,
-                    )
+        return (
+            await self.discord_api.next_bot.edit_message_text(
+                EditMessageTextReq(
+                    chat=self.private_file_channel,
+                    message_id=message_id,
+                    text=message,
                 )
-            ).message_id
-        except Exception:
-            return message_id
+            )
+        ).message_id
 
     async def delete_messages(self, message_ids: Iterable[int]) -> None:
         """Best-effort deletion of channel messages.
@@ -132,9 +129,12 @@ class MessageApi(MessageBroker):
 
     @staticmethod
     def _size(begin: int, end: int) -> int:
-        return begin - end + 1
+        return end - begin + 1
 
     async def download_file_parallel(self, message_id: int, begin: int, end: int):
+        # Split the range into concurrent sub-range downloads so we can
+        # utilise CDN bandwidth better for large single-part files.
+        n = 4
         tasks = [
             self.discord_api.next_bot.download_file(
                 DownloadFileReq(
@@ -145,7 +145,7 @@ class MessageApi(MessageBroker):
                     end=e,
                 )
             )
-            for b, e in self.split_download_tasks(begin, end, 1)  # Single bot, no parallel
+            for b, e in self.split_download_tasks(begin, end, n)
         ]
 
         res = [t.chunks for t in await asyncio.gather(*tasks)]
@@ -156,7 +156,13 @@ class MessageApi(MessageBroker):
     async def download_file(
         self, message_id: int, begin: int, end: int
     ) -> DownloadFileResp:
-        if end > 0 and is_big_file(self._size(begin, end)):
+        size = self._size(begin, end)
+        is_big = end > 0 and is_big_file(size)
+        logger.debug(
+            "download_file msg=%d begin=%d end=%d size=%d is_big=%s",
+            message_id, begin, end, size, is_big,
+        )
+        if is_big:
             return await self.download_file_parallel(message_id, begin, end)
 
         return await self.discord_api.next_bot.download_file(

@@ -29,7 +29,16 @@ class PropfindRequest:
 
     @classmethod
     async def from_request(cls, request: Request):
-        depth = int(request.headers["Depth"])
+        raw_depth = request.headers.get("Depth", "0")
+        if raw_depth.lower() in ("infinity", "inf"):
+            # Infinity depth is too expensive — cap at 1 to prevent
+            # unbounded recursion that would hang the server.
+            depth = 1
+        else:
+            try:
+                depth = int(raw_depth)
+            except (ValueError, TypeError):
+                depth = 1  # RFC 4918: default depth is infinity, but we cap
 
         try:
             body = await request.body()
@@ -73,6 +82,11 @@ async def _propstat(member: Member, prop_names: Tuple[PropertyName, ...]) -> Ele
     return root
 
 
+# Limit concurrent member lookups so large directories don't overwhelm
+# the event loop or the Discord API rate limits.
+_MAX_CONCURRENT_MEMBERS = 10
+
+
 async def _propfind_response(
     member: Member, depth: int, prop_names: Tuple[PropertyName, ...], base_path: str
 ) -> List[Element]:
@@ -95,10 +109,14 @@ async def _propfind_response(
     folder: Folder = member
 
     names = await member.member_names()
-    sub_members = await async_map(lambda name: folder.member(name), names)
+    sub_members = await async_map(
+        lambda name: folder.member(name), names,
+        max_concurrency=_MAX_CONCURRENT_MEMBERS,
+    )
     propfind_responses = await async_map(
         lambda m: _propfind_response(m, depth - 1, prop_names, base_path),
         (m for m in sub_members if m is not None),
+        max_concurrency=_MAX_CONCURRENT_MEMBERS,
     )
     for sub_response in propfind_responses:
         res.extend(sub_response)
@@ -115,7 +133,9 @@ async def propfind(
     root = et.Element(_tag("multistatus"), nsmap=NS_MAP)
 
     for propfind_responses in await async_map(
-        lambda member: _propfind_response(member, depth, prop_names, base_path), members
+        lambda member: _propfind_response(member, depth, prop_names, base_path),
+        members,
+        max_concurrency=_MAX_CONCURRENT_MEMBERS,
     ):
         for response in propfind_responses:
             root.append(response)

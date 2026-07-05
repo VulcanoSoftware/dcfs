@@ -216,7 +216,7 @@ class DCFSFileIO:
 
         if self._stream is None:
             self._stream = await self.ops.download(
-                self.path, self.pos, -1, os.path.basename(self.path)
+                self.path, self.pos, -1, os.path.basename(self.path), validate=False
             )
             self._iter = self._stream.__aiter__()
 

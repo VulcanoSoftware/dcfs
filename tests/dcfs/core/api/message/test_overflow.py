@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from dcfs.core.api.message import MessageApi, OVERFLOW_SENTINEL, OVERFLOW_FILENAME
-from dcfs.reqres import SendMessageResp, MessageResp, Document, DownloadFileResp
+from dcfs.reqres import SendMessageResp, MessageResp, Document
 
 @pytest.mark.asyncio
 async def test_send_text_overflow(mocker):
@@ -21,7 +21,7 @@ async def test_send_text_overflow(mocker):
     # Verify
     assert msg_id == 999
     bot.send_file.assert_called_once()
-    args, kwargs = bot.send_file.call_args
+    args, _ = bot.send_file.call_args
     req = args[0]
     assert req.chat == 123
     assert req.name == OVERFLOW_FILENAME
@@ -42,7 +42,11 @@ async def test_get_text_overflow(mocker):
     async def mock_chunks():
         yield overflow_text.encode("utf-8")
 
-    mocker.patch.object(message_api, "download_file", return_value=AsyncMock(chunks=mock_chunks()))
+    mock_download = mocker.patch.object(
+        message_api,
+        "download_file",
+        return_value=AsyncMock(chunks=mock_chunks())
+    )
 
     message = MessageResp(
         message_id=999,
@@ -55,7 +59,7 @@ async def test_get_text_overflow(mocker):
 
     # Verify
     assert retrieved_text == overflow_text
-    message_api.download_file.assert_called_once_with(999, 0, -1)
+    mock_download.assert_called_once_with(999, 0, -1)
 
 @pytest.mark.asyncio
 async def test_get_text_normal(mocker):

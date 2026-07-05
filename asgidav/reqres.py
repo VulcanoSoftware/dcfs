@@ -84,7 +84,7 @@ async def _propstat(member: Member, prop_names: Tuple[PropertyName, ...]) -> Ele
 
 # Limit concurrent member lookups so large directories don't overwhelm
 # the event loop or the Discord API rate limits.
-_MAX_CONCURRENT_MEMBERS = 10
+_MAX_CONCURRENT_MEMBERS = 20
 
 
 async def _propfind_response(

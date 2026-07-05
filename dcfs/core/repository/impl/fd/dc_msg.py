@@ -19,8 +19,36 @@ logger = logging.getLogger(__name__)
 
 
 class DCMsgFDRepository(IFDRepository):
-    def __init__(self, message_api: MessageApi):
+    def __init__(self, message_api: MessageApi, cache_capacity: int = 1024):
         self._message_api = message_api
+        self._cache_capacity = cache_capacity
+        self._cache: dict[int, DCFSFileDesc] = {}
+        self._cache_order: list[int] = []
+
+    def _cache_put(self, message_id: int, fd: DCFSFileDesc) -> None:
+        if message_id in self._cache:
+            # Refresh position in LRU
+            self._cache_order.remove(message_id)
+        elif len(self._cache) >= self._cache_capacity:
+            # Evict oldest
+            evict = self._cache_order.pop(0)
+            self._cache.pop(evict, None)
+
+        self._cache[message_id] = fd
+        self._cache_order.append(message_id)
+
+    def _cache_get(self, message_id: int) -> Optional[DCFSFileDesc]:
+        if message_id in self._cache:
+            # Refresh position in LRU
+            self._cache_order.remove(message_id)
+            self._cache_order.append(message_id)
+            return self._cache[message_id]
+        return None
+
+    def _cache_invalidate(self, message_id: int) -> None:
+        if message_id in self._cache:
+            self._cache.pop(message_id)
+            self._cache_order.remove(message_id)
 
     async def _send_with_retry(self, text: str) -> int:
         """Send a file descriptor with exponential backoff retry."""
@@ -81,15 +109,19 @@ class DCMsgFDRepository(IFDRepository):
         self, fd: DCFSFileDesc, fr: Optional[DCFSFileRef] = None
     ) -> FDRepositoryResp:
         if fr is None:
+            message_id = await self._send_with_retry(fd.to_json())
+            self._cache_put(message_id, fd)
             return FDRepositoryResp(
-                message_id=await self._send_with_retry(fd.to_json()),
+                message_id=message_id,
                 fd=fd,
             )
 
+        message_id = await self._edit_with_retry(
+            message_id=fr.message_id, text=fd.to_json()
+        )
+        self._cache_put(message_id, fd)
         return FDRepositoryResp(
-            message_id=await self._edit_with_retry(
-                message_id=fr.message_id, text=fd.to_json()
-            ),
+            message_id=message_id,
             fd=fd,
         )
 
@@ -139,15 +171,21 @@ class DCMsgFDRepository(IFDRepository):
         include_all_versions: bool = False,
         validate: bool = True,
     ) -> DCFSFileDesc:
+        if not validate and (cached := self._cache_get(fr.message_id)):
+            return cached
+
         message = (await self._message_api.get_messages([fr.message_id]))[0]
 
         if not message:
             logging.error(
                 f"File descriptor (message_id: {fr.message_id}) for {fr.name} not found"
             )
+            self._cache_invalidate(fr.message_id)
             return DCFSFileDesc.empty(fr.name)
 
         fd = DCFSFileDesc.from_dict(json.loads(message.text), name=fr.name)
+        self._cache_put(fr.message_id, fd)
+
         if not validate:
             return fd
 

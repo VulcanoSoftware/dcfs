@@ -11,7 +11,7 @@ from dcfs.reqres import FileContent
 
 
 class Resource(_Resource):
-    def __init__(self, path: str, client: Client):
+    def __init__(self, path: str, client: Client, fr: Optional[DCFSFileRef] = None):
         super().__init__(f"/{client.name}{path}")
 
         self.__relative_path = path
@@ -19,8 +19,9 @@ class Resource(_Resource):
         self.__fs_cache = gfc[client.name]
         self.__ops = Ops(client)
 
-        if not (fr := self.__ops.stat_file(path)):
-            raise TechnicalError(f"Resource {path} does not exist")
+        if fr is None:
+            if not (fr := self.__ops.stat_file(path)):
+                raise TechnicalError(f"Resource {path} does not exist")
 
         self.__fr: DCFSFileRef = fr
         self.__fd_value: Optional[DCFSFileDesc] = None

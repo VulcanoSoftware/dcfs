@@ -17,8 +17,8 @@ class Folder(_Folder):
         self.__client = client
         self.__ops = Ops(client)
         self.__folder = client.dir_api.root if path == "/" else self.__ops.cd(path)
-        self.__sub_folders = frozenset([d.name for d in self.__folder.find_dirs()])
-        self.__sub_files = frozenset([f.name for f in self.__folder.find_files()])
+        self.__sub_folders = {d.name: d for d in self.__folder.find_dirs()}
+        self.__sub_files = {f.name: f for f in self.__folder.find_files()}
 
     @property
     def fs_cache(self) -> FSCache:
@@ -28,15 +28,15 @@ class Folder(_Folder):
         return self.__folder.name
 
     async def member_names(self):
-        return self.__sub_folders.union(self.__sub_files)
+        return set(self.__sub_folders.keys()).union(self.__sub_files.keys())
 
     async def member(self, path: str):
         path_parts = path.split("/", 1)
         if path_parts[0] == "":
             return self
 
-        if path_parts[0] in self.__sub_files:
-            return Resource(self._sub_path(path_parts[0]), self.__client)
+        if fr := self.__sub_files.get(path_parts[0]):
+            return Resource(self._sub_path(path_parts[0]), self.__client, fr=fr)
 
         if path_parts[0] in self.__sub_folders:
             if len(path_parts) > 1:

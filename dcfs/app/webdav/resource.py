@@ -60,6 +60,7 @@ class Resource(_Resource):
             begin,
             end,
             os.path.basename(self.__relative_path),
+            validate=False,
         )
 
     async def overwrite(self, content: FileContent, size: int) -> None:

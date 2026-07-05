@@ -552,7 +552,7 @@ class TestOps:
 
         mock_parent_dir.find_file.assert_called_once_with("file.txt")
         ops._client.file_api.retrieve.assert_called_once_with(
-            mock_file_ref, 0, 1024, "downloaded_file.txt"
+            mock_file_ref, 0, 1024, "downloaded_file.txt", validate=True
         )
 
     @pytest.mark.asyncio

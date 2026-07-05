@@ -229,6 +229,7 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
             offset,
             end,
             os.path.basename(self.path),
+            validate=False,
         )
         data = bytearray()
         async for chunk in stream:

@@ -237,6 +237,7 @@ class Ops:
         begin: int,
         end: int,
         as_name: str,
+        validate: bool = True,
     ) -> AsyncIterator[bytes]:
         self._validate_path(path)
         dirname, basename = os.path.dirname(path), os.path.basename(path)
@@ -252,4 +253,5 @@ class Ops:
             begin,
             end,
             as_name,
+            validate=validate,
         )

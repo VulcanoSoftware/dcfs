@@ -134,8 +134,9 @@ class FileApi:
         begin: int,
         end: int,
         as_name: str,
+        validate: bool = True,
     ) -> FileContent:
-        fd = await self.desc(fr)
+        fd = await self.desc(fr, validate=validate)
         if isinstance(fd, FileMessageEmpty):
 
             async def empty_file() -> FileContent:
@@ -143,6 +144,19 @@ class FileApi:
 
             return empty_file()
         fv = fd.get_latest_version()
+
+        # If validation was skipped but we don't have enough metadata to
+        # actually perform the download (e.g. legacy file or corrupted
+        # local cache), force a validated re-fetch.
+        if not validate and (
+            not fv.part_sizes or len(fv.part_sizes) != len(fv.message_ids)
+        ):
+            logger.debug(
+                f"Forcing validation for {fr.name} (message_id={fr.message_id}) "
+                f"because part_sizes are missing or incomplete."
+            )
+            fd = await self.desc(fr, validate=True)
+            fv = fd.get_latest_version()
 
         async def chunks():
             try:

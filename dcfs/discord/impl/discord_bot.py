@@ -74,14 +74,15 @@ class DiscordBotAPI(IDiscordClient):
     async def get_messages(self, req: GetMessagesReq) -> GetMessagesResp:
         channel_id = self._parse_channel_id(req.chat)
         channel = await self._get_channel(channel_id)
-        messages: list[Optional[MessageResp]] = []
-        for message_id in req.message_ids:
+
+        async def _fetch(m_id: int) -> Optional[MessageResp]:
             try:
-                msg = await channel.fetch_message(message_id)
-                messages.append(self._to_message_dto(msg))
+                msg = await channel.fetch_message(m_id)
+                return self._to_message_dto(msg)
             except discord.NotFound:
-                messages.append(None)
-        return messages
+                return None
+
+        return list(await asyncio.gather(*(_fetch(m_id) for m_id in req.message_ids)))
 
     async def get_pinned_messages(self, req: GetPinnedMessageReq) -> GetMessagesRespNoNone:
         channel_id = self._parse_channel_id(req.chat)

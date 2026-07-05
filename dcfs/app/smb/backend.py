@@ -193,7 +193,11 @@ class DCFSSMBFile:
         async def _read():
             # end is inclusive in ops.download
             stream = await self.ops.download(
-                self.path, offset, offset + size - 1, os.path.basename(self.path)
+                self.path,
+                offset,
+                offset + size - 1,
+                os.path.basename(self.path),
+                validate=False,
             )
             data = b""
             async for chunk in stream:

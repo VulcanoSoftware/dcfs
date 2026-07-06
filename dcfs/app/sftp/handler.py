@@ -18,9 +18,9 @@ logger = logging.getLogger(__name__)
 
 
 class DCFSSFTPHandler(asyncssh.SFTPServer):
-    def __init__(self, clients: Clients, *args: Any, **kwargs: Any):
+    def __init__(self, clients: Clients, chan: Any):
         self.clients = clients
-        super().__init__(*args, **kwargs)
+        super().__init__(chan)
 
     def _get_ops(self, path_bytes: bytes) -> tuple[Optional[Ops], str]:
         path = path_bytes.decode("utf-8", errors="replace")

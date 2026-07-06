@@ -44,34 +44,57 @@ class DCFSSFTPHandler(asyncssh.SFTPServer):
             client_name, sub_path = split_global_path(path)
             if client_name in self.clients:
                 return Ops(self.clients[client_name]), "/" + sub_path.lstrip("/")
+            else:
+                raise asyncssh.SFTPNoSuchFile(f"No such client: {client_name}")
+        except asyncssh.SFTPNoSuchFile:
+            raise
         except Exception:
             logger.debug(f"Failed to split global path: {path}")
             return None, "/"
 
-        # Client not found - treat as root listing
+        # Fallback to root
         return None, "/"
 
-    async def listdir(self, path: bytes) -> List[asyncssh.SFTPName]:  # type: ignore[override]
+    async def scandir(self, path: bytes) -> AsyncIterator[asyncssh.SFTPName]:  # type: ignore[override]
         ops, sub_path = self._get_ops(path)
-        names = []
+
+        # Standard . and .. entries
+        yield asyncssh.SFTPName(b".", attrs=asyncssh.SFTPAttrs(mode=stat.S_IFDIR | 0o755))
+        yield asyncssh.SFTPName(b"..", attrs=asyncssh.SFTPAttrs(mode=stat.S_IFDIR | 0o755))
 
         if ops is None:
             if sub_path == "/":
                 for client_name in self.clients:
-                    names.append(asyncssh.SFTPName(client_name.encode("utf-8")))
-            return names
+                    yield asyncssh.SFTPName(
+                        client_name.encode("utf-8"),
+                        attrs=asyncssh.SFTPAttrs(mode=stat.S_IFDIR | 0o755),
+                    )
+            return
 
         if sub_path == "/":
             directory = ops._client.dir_api.root
         else:
-            directory = ops.cd(sub_path)
+            try:
+                directory = ops.cd(sub_path)
+            except FileOrDirectoryDoesNotExist:
+                raise asyncssh.SFTPNoSuchFile(f"No such directory: {path.decode('utf-8')}")
 
         for d in directory.find_dirs():
-            names.append(asyncssh.SFTPName(d.name.encode("utf-8")))
+            mtime = int(d.modified_at_timestamp / 1000)
+            yield asyncssh.SFTPName(
+                d.name.encode("utf-8"),
+                attrs=asyncssh.SFTPAttrs(
+                    mode=stat.S_IFDIR | 0o755, mtime=mtime, atime=mtime
+                ),
+            )
         for f in directory.find_files():
-            names.append(asyncssh.SFTPName(f.name.encode("utf-8")))
-
-        return names
+            # For files we might not want to fetch full desc just for listing
+            # as it involves network calls to Discord for each file.
+            # We provide the basic mode to help clients like FileZilla.
+            yield asyncssh.SFTPName(
+                f.name.encode("utf-8"),
+                attrs=asyncssh.SFTPAttrs(mode=stat.S_IFREG | 0o644),
+            )
 
     async def stat(self, path: bytes) -> asyncssh.SFTPAttrs:  # type: ignore[override]
         ops, sub_path = self._get_ops(path)

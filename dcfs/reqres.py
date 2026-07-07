@@ -275,7 +275,12 @@ class FileMessageFromStream(UploadableFileMessage):
         )
 
     async def read(self, length: int) -> bytes:
-        size_to_return = min(length, self.get_size() - self._read_size)
+        total_size = self.get_size()
+        if total_size >= 0:
+            size_to_return = min(length, total_size - self._read_size)
+        else:
+            size_to_return = length
+
         if size_to_return <= 0:
             return b""
 

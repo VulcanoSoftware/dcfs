@@ -66,7 +66,11 @@ class FileUploader:
         await self._file_msg.open()
         self._buffer = io.BytesIO()
         while True:
-            chunk = await self._file_msg.read(1024 * 1024)
+            remaining = limit - self._buffer.tell()
+            if remaining <= 0:
+                break
+
+            chunk = await self._file_msg.read(min(1024 * 1024, remaining))
             if not chunk:
                 break
             self._buffer.write(chunk)

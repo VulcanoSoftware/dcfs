@@ -87,9 +87,10 @@ class EncryptingFileMessage(UploadableFileMessage):
             raise RuntimeError("serialized header has unexpected size")
 
         plaintext_size = inner.get_size()
-        ciphertext_size = HEADER_SIZE + ciphertext_size_for_plaintext(
+        ct_payload_size = ciphertext_size_for_plaintext(
             plaintext_size, header.chunk_size
         )
+        ciphertext_size = -1 if ct_payload_size == -1 else HEADER_SIZE + ct_payload_size
 
         msg = cls(
             name=inner.name,
@@ -165,10 +166,11 @@ class EncryptingFileMessage(UploadableFileMessage):
         if not self._header_emitted:
             await self.open()
 
-        remaining = self.size - self._read_size
-        if remaining <= 0:
-            return b""
-        length = min(length, remaining)
+        if self.size >= 0:
+            remaining = self.size - self._read_size
+            if remaining <= 0:
+                return b""
+            length = min(length, remaining)
 
         out = bytearray()
         while len(out) < length:
@@ -204,11 +206,16 @@ class EncryptingFileMessage(UploadableFileMessage):
         """
         target = self.cipher.chunk_size
         buf = bytearray()
-        remaining_plaintext = self.inner.get_size() - self._plaintext_read
-        if remaining_plaintext <= 0:
-            return b""
 
-        want = min(target, remaining_plaintext)
+        plaintext_total = self.inner.get_size()
+        if plaintext_total >= 0:
+            remaining_plaintext = plaintext_total - self._plaintext_read
+            if remaining_plaintext <= 0:
+                return b""
+            want = min(target, remaining_plaintext)
+        else:
+            want = target
+
         while len(buf) < want:
             piece = await self.inner.read(want - len(buf))
             if not piece:

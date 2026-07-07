@@ -134,6 +134,8 @@ def ciphertext_size_for_plaintext(plaintext_size: int, chunk_size: int) -> int:
     must be added separately. Used by the upload wrapper to declare the
     correct file size up-front to Discord.
     """
+    if plaintext_size == -1:
+        return -1
     if plaintext_size < 0:
         raise ValueError(f"plaintext size negative: {plaintext_size}")
     if plaintext_size == 0:

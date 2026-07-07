@@ -26,6 +26,7 @@ from dcfs.crypto.repository import EncryptingFileContentRepository
 from dcfs.reqres import (
     FileContent,
     FileMessageFromBuffer,
+    FileMessageFromStream,
     SentFileMessage,
     UploadableFileMessage,
 )
@@ -69,15 +70,16 @@ class _InMemoryRepo(IFileContentRepository):
         await file_msg.open()
         try:
             buf = bytearray()
+            total_size = file_msg.get_size()
             for read_size in (7, 4096, 8192, 1024 * 1024):
                 while True:
                     piece = await file_msg.read(read_size)
                     if not piece:
                         break
                     buf += piece
-                    if len(buf) >= file_msg.get_size():
+                    if total_size >= 0 and len(buf) >= total_size:
                         break
-                if len(buf) >= file_msg.get_size():
+                if not buf or (total_size >= 0 and len(buf) >= total_size):
                     break
         finally:
             await file_msg.close()
@@ -399,3 +401,27 @@ async def test_detection_cached_across_calls() -> None:
 
     hit, entry = repo._cache.lookup(fv.id)
     assert hit and entry is None  # cached as plaintext
+
+
+async def test_streaming_upload_unknown_size_round_trip() -> None:
+    repo = _make_repo(chunk_size=4096)
+    plaintext = os.urandom(4096 * 2 + 100)
+
+    async def gen():
+        yield plaintext[:4096]
+        yield plaintext[4096:8192]
+        yield plaintext[8192:]
+
+    # size=-1 indicates unknown size
+    file_msg = FileMessageFromStream.new(stream=gen(), size=-1, name="stream.bin")
+    sent = await repo.save(file_msg)
+
+    fv = _FakeFileVersion(
+        id="v-stream",
+        size=sum(m.size for m in sent),
+        message_ids=[m.message_id for m in sent],
+        part_sizes=[m.size for m in sent],
+    )
+
+    out = await _collect(await repo.get(fv, 0, -1, "stream.bin"))
+    assert out == plaintext

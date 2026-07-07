@@ -142,6 +142,9 @@ class TestSizeArithmetic:
             ciphertext_size_for_plaintext(plaintext_size, chunk_size) == expected
         )
 
+    def test_ciphertext_size_for_unknown_plaintext_size(self) -> None:
+        assert ciphertext_size_for_plaintext(-1, 4096) == -1
+
     def test_offset_to_chunk_round_trip(self) -> None:
         for offset in (0, 1, 64 * 1024 - 1, 64 * 1024, 64 * 1024 + 5):
             chunk_index, in_chunk = plaintext_offset_to_chunk(offset, 64 * 1024)

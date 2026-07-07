@@ -11,15 +11,21 @@ from .folder import Folder, RootFolder
 
 async def _get_member(path: str, clients: Clients) -> Optional[Member]:
     if path == "" or path == "/":
-        folders = {
-            client_name: Folder("/", clients[client_name])
-            for client_name in clients.keys()
-        }
+        folders = {}
+        for client_name, client in clients.items():
+            cache = gfc[client_name]
+            if not (folder := cache.get("/")):
+                folder = Folder("/", client)
+                cache.set("/", folder)
+            folders[client_name] = folder
         return RootFolder(folders)
 
     client_name, sub_path = split_global_path(path)
+    cache = gfc[client_name]
 
-    root = Folder("/", clients[client_name])
+    if not (root := cache.get("/")):
+        root = Folder("/", clients[client_name])
+        cache.set("/", root)
 
     if res := await root.member(sub_path.lstrip("/")):
         return res

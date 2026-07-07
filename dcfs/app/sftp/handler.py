@@ -188,7 +188,7 @@ class DCFSSFTPHandler(asyncssh.SFTPServer):
             if expected_size is not None and expected_size < 0:
                 expected_size = None
 
-        if mode == "w" and expected_size is not None:
+        if mode == "w":
             return DCFSSFTPStreamingFile(ops, sub_path, expected_size, client_name)
         return DCFSSFTPBufferedFile(ops, sub_path, mode, client_name)
 
@@ -428,10 +428,16 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
 
 
 class DCFSSFTPStreamingFile(DCFSSFTPFileBase):
-    def __init__(self, ops: Ops, path: str, expected_size: int, client_name: str):
+    def __init__(
+        self,
+        ops: Ops,
+        path: str,
+        expected_size: Optional[int],
+        client_name: str,
+    ):
         self.ops = ops
         self.path = path
-        self.expected_size = expected_size
+        self.expected_size = expected_size if expected_size is not None else -1
         self.client_name = client_name
         self.closed = False
 
@@ -518,7 +524,7 @@ class DCFSSFTPStreamingFile(DCFSSFTPFileBase):
             return 0
 
         end = offset + len(data)
-        if end > self.expected_size:
+        if self.expected_size >= 0 and end > self.expected_size:
             raise asyncssh.SFTPFailure("Write exceeds expected file size")
 
         existing = self._pending.get(offset)
@@ -542,7 +548,7 @@ class DCFSSFTPStreamingFile(DCFSSFTPFileBase):
 
         self.closed = True
 
-        if self._next_offset != self.expected_size:
+        if self.expected_size >= 0 and self._next_offset != self.expected_size:
             raise asyncssh.SFTPFailure(
                 f"Upload incomplete: received {self._next_offset} of {self.expected_size} bytes"
             )
@@ -555,7 +561,7 @@ class DCFSSFTPStreamingFile(DCFSSFTPFileBase):
         now = int(time.time())
         return asyncssh.SFTPAttrs(
             permissions=stat.S_IFREG | 0o644,
-            size=self.expected_size,
+            size=max(0, self.expected_size),
             mtime=now,
             atime=now,
         )

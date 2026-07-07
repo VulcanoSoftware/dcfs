@@ -85,42 +85,70 @@ class DCMsgFileContentRepository(IFileContentRepository):
         tasks = []
 
         max_part_size = discord_max_file_size_bytes()
-        for i, part_size in enumerate(self._partition(total_size, max_part_size)):
-            # Acquire semaphore BEFORE buffering to keep memory usage under control.
-            # Only N parts will be buffered and uploading concurrently.
-            await self._upload_semaphore.acquire()
 
-            # Update file_msg for the current part
-            file_msg.name = f"[part{i+1}]{original_name}"
-            file_msg.size = part_size
+        if total_size >= 0:
+            # Case 1: Total size is known upfront.
+            for i, part_size in enumerate(self._partition(total_size, max_part_size)):
+                await self._upload_semaphore.acquire()
 
-            # Create an uploader for this part. Using next_bot to distribute load
-            # across multiple bots if available.
-            uploader = FileUploader(self._message_api.discord_api.next_bot, file_msg)
+                file_msg.name = f"[part{i+1}]{original_name}"
+                file_msg.size = part_size
 
-            # Read and buffer the part content sequentially from the source stream.
-            await uploader.upload()
+                uploader = FileUploader(self._message_api.discord_api.next_bot, file_msg)
+                await uploader.upload()
 
-            # Dispatch the upload as a background task.
-            tasks.append(
-                asyncio.create_task(
-                    self._upload_part_task(
-                        uploader,
-                        self._message_api.private_file_channel,
-                        i + 1,
-                        part_size,
-                        self._upload_semaphore,
+                tasks.append(
+                    asyncio.create_task(
+                        self._upload_part_task(
+                            uploader,
+                            self._message_api.private_file_channel,
+                            i + 1,
+                            part_size,
+                            self._upload_semaphore,
+                        )
                     )
                 )
-            )
+                await asyncio.sleep(0)
+                file_msg.next_part(part_size)
+        else:
+            # Case 2: Total size is unknown (e.g. streaming from SFTP).
+            # We read and upload parts until the stream is exhausted.
+            i = 0
+            while True:
+                await self._upload_semaphore.acquire()
 
-            # Yield to the event loop between parts so the Discord
-            # gateway heartbeat and other async tasks can make progress
-            # during large uploads.
-            await asyncio.sleep(0)
+                file_msg.name = f"[part{i+1}]{original_name}"
+                # Set size to -1 for FileUploader to allow reading up to max_part_size
+                # without being capped by FileMessageFromStream.read().
+                file_msg.size = -1
 
-            # Advance the source message to the next part
-            file_msg.next_part(part_size)
+                uploader = FileUploader(self._message_api.discord_api.next_bot, file_msg)
+                part_size = await uploader.upload()
+
+                if part_size == 0 and i > 0:
+                    # EOF reached after some parts were uploaded.
+                    self._upload_semaphore.release()
+                    break
+
+                tasks.append(
+                    asyncio.create_task(
+                        self._upload_part_task(
+                            uploader,
+                            self._message_api.private_file_channel,
+                            i + 1,
+                            part_size,
+                            self._upload_semaphore,
+                        )
+                    )
+                )
+                await asyncio.sleep(0)
+
+                if part_size < max_part_size:
+                    # Last part reached.
+                    break
+
+                file_msg.next_part(part_size)
+                i += 1
 
         # Wait for all uploads to complete.
         return list(await asyncio.gather(*tasks))

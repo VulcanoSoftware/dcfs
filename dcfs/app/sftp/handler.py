@@ -361,9 +361,12 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
                 )
                 self._read_iter = self._read_stream.__aiter__()
 
+            # it is impossible for self._read_iter to be None here given the logic above,
+            # but we cast to satisfy mypy.
+            it = cast(AsyncIterator[bytes], self._read_iter)
             while len(self._read_buf) < size:
                 try:
-                    chunk = await anext(self._read_iter)
+                    chunk = await anext(it)
                     self._read_buf.extend(chunk)
                 except StopAsyncIteration:
                     break

@@ -4,7 +4,7 @@ import logging
 import os
 import stat
 import time
-from typing import Any, AsyncIterator, Optional
+from typing import Any, AsyncGenerator, AsyncIterator, Optional, cast
 
 import asyncssh
 
@@ -330,22 +330,48 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
         self.buffer = bytearray()
         self.closed = False
 
+        # Read streaming state
+        self._read_stream: Optional[AsyncIterator[bytes]] = None
+        self._read_iter: Optional[AsyncIterator[bytes]] = None
+        self._read_pos = 0
+        self._read_buf = bytearray()
+        self._read_lock = asyncio.Lock()
+        self._cached_attrs: Optional[asyncssh.SFTPAttrs] = None
+
     async def read(self, offset: int, size: int) -> bytes:
         if "r" not in self.mode:
             raise asyncssh.SFTPPermissionDenied("File not open for reading")
 
-        end = -1 if size < 0 else offset + size - 1
-        stream = await self.ops.download(
-            self.path,
-            offset,
-            end,
-            os.path.basename(self.path),
-            validate=False,
-        )
-        data = bytearray()
-        async for chunk in stream:
-            data.extend(chunk)
-        return bytes(data)
+        async with self._read_lock:
+            # If we don't have a stream or it's at the wrong position, start a new one.
+            if self._read_stream is None or offset != self._read_pos:
+                if self._read_stream is not None:
+                    await cast(AsyncGenerator[bytes, None], self._read_stream).aclose()
+                    self._read_stream = None
+                    self._read_iter = None
+
+                self._read_buf = bytearray()
+                self._read_pos = offset
+                self._read_stream = await self.ops.download(
+                    self.path,
+                    offset,
+                    -1,
+                    os.path.basename(self.path),
+                    validate=False,
+                )
+                self._read_iter = self._read_stream.__aiter__()
+
+            while len(self._read_buf) < size:
+                try:
+                    chunk = await anext(self._read_iter)
+                    self._read_buf.extend(chunk)
+                except StopAsyncIteration:
+                    break
+
+            data = self._read_buf[:size]
+            self._read_buf = self._read_buf[size:]
+            self._read_pos += len(data)
+            return bytes(data)
 
     async def write(self, offset: int, data: bytes) -> int:
         if "w" not in self.mode:
@@ -370,6 +396,11 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
             return
 
         self.closed = True
+
+        if self._read_stream is not None:
+            await cast(AsyncGenerator[bytes, None], self._read_stream).aclose()
+            self._read_stream = None
+            self._read_iter = None
 
         if "w" in self.mode and self.buffer:
             data = bytes(self.buffer)
@@ -415,16 +446,20 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
                 atime=now,
             )
 
+        if self._cached_attrs:
+            return self._cached_attrs
+
         fd = await self.ops.desc(self.path, validate=False)
         fv = fd.get_latest_version()
         size = await self.ops._client.fc_repo.content_length(fv)
         mtime = int(fv.updated_at_timestamp / 1000)
-        return asyncssh.SFTPAttrs(
+        self._cached_attrs = asyncssh.SFTPAttrs(
             permissions=stat.S_IFREG | 0o644,
             size=size,
             mtime=mtime,
             atime=mtime,
         )
+        return self._cached_attrs
 
 
 class DCFSSFTPStreamingFile(DCFSSFTPFileBase):

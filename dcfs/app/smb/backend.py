@@ -4,6 +4,7 @@ import os
 import time
 from typing import Optional
 
+from dcfs.app.fs_cache import gfc
 from dcfs.app.utils import normalize_global_path, split_global_path
 from dcfs.config import get_config
 from dcfs.core import Clients, Ops
@@ -20,9 +21,9 @@ class DCFSSMBStorage:
         self.clients = clients
         self.loop = loop
 
-    def _get_ops(self, path: str) -> tuple[Optional[Ops], str]:
+    def _get_ops(self, path: str) -> tuple[Optional[Ops], str, Optional[str]]:
         if not path:
-            return None, "/"
+            return None, "/", None
 
         try:
             path = normalize_global_path(path)
@@ -31,22 +32,26 @@ class DCFSSMBStorage:
             logger.debug(f"Failed to normalize global path: {path}")
 
         if path in (".", "/"):
-            return None, "/"
+            return None, "/", None
 
         try:
             client_name, sub_path = split_global_path(path)
             if client_name in self.clients:
-                return Ops(self.clients[client_name]), "/" + sub_path.lstrip("/")
+                return (
+                    Ops(self.clients[client_name]),
+                    "/" + sub_path.lstrip("/"),
+                    client_name,
+                )
             raise OSError(f"No such client: {client_name}")
         except OSError:
             raise
         except Exception:
-             logger.debug(f"Failed to split global path: {path}")
-        return None, path
+            logger.debug(f"Failed to split global path: {path}")
+        return None, path, None
 
     def listPath(self, path: str, filter: str = "*"):
         try:
-            ops, sub_path = self._get_ops(path)
+            ops, sub_path, _ = self._get_ops(path)
         except OSError:
             return []
 
@@ -115,7 +120,7 @@ class DCFSSMBStorage:
         return SMBStat(name, is_dir, size, mtime)
 
     def getFileStat(self, path: str):
-        ops, sub_path = self._get_ops(path)
+        ops, sub_path, _ = self._get_ops(path)
         if ops is None or sub_path == "/":
             return self._make_stat(os.path.basename(path) or "/", is_dir=True)
 
@@ -148,48 +153,80 @@ class DCFSSMBStorage:
             return 0
 
     def openFile(self, path: str, mode: str):
-        ops, sub_path = self._get_ops(path)
-        if ops is None:
-             raise OSError("Cannot open root")
-        return DCFSSMBFile(ops, sub_path, mode, self.loop)
+        ops, sub_path, client_name = self._get_ops(path)
+        if ops is None or client_name is None:
+            raise OSError("Cannot open root")
+        return DCFSSMBFile(ops, sub_path, mode, self.loop, client_name)
 
     def mkdir(self, path: str):
-        ops, sub_path = self._get_ops(path)
-        if ops:
-            future = asyncio.run_coroutine_threadsafe(ops.mkdir(sub_path, parents=False), self.loop)
+        ops, sub_path, client_name = self._get_ops(path)
+        if ops and client_name:
+            future = asyncio.run_coroutine_threadsafe(
+                ops.mkdir(sub_path, parents=False), self.loop
+            )
             future.result()
+            if client_name in gfc:
+                gfc[client_name].reset(os.path.dirname(sub_path))
 
     def rmdir(self, path: str):
-        ops, sub_path = self._get_ops(path)
-        if ops:
-             future = asyncio.run_coroutine_threadsafe(ops.rm_dir(sub_path, recursive=False), self.loop)
-             future.result()
+        ops, sub_path, client_name = self._get_ops(path)
+        if ops and client_name:
+            future = asyncio.run_coroutine_threadsafe(
+                ops.rm_dir(sub_path, recursive=False), self.loop
+            )
+            future.result()
+            if client_name in gfc:
+                gfc[client_name].reset(os.path.dirname(sub_path))
 
     def deleteFile(self, path: str):
-        ops, sub_path = self._get_ops(path)
-        if ops:
-             future = asyncio.run_coroutine_threadsafe(ops.rm_file(sub_path), self.loop)
-             future.result()
+        ops, sub_path, client_name = self._get_ops(path)
+        if ops and client_name:
+            future = asyncio.run_coroutine_threadsafe(
+                ops.rm_file(sub_path), self.loop
+            )
+            future.result()
+            if client_name in gfc:
+                gfc[client_name].reset(os.path.dirname(sub_path))
 
     def rename(self, oldpath: str, newpath: str):
-         ops_src, sub_src = self._get_ops(oldpath)
-         ops_dst, sub_dst = self._get_ops(newpath)
-         if ops_src and ops_dst and ops_src._client == ops_dst._client:
-             async def _rename():
-                 try:
-                     await ops_src.mv_file(sub_src, sub_dst)
-                 except Exception:
-                     await ops_src.mv_dir(sub_src, sub_dst)
+        ops_src, sub_src, client_src = self._get_ops(oldpath)
+        ops_dst, sub_dst, client_dst = self._get_ops(newpath)
+        if (
+            ops_src
+            and ops_dst
+            and ops_src._client == ops_dst._client
+            and client_src
+            and client_dst
+        ):
 
-             future = asyncio.run_coroutine_threadsafe(_rename(), self.loop)
-             future.result()
+            async def _rename():
+                try:
+                    await ops_src.mv_file(sub_src, sub_dst)
+                except Exception:
+                    await ops_src.mv_dir(sub_src, sub_dst)
+
+            future = asyncio.run_coroutine_threadsafe(_rename(), self.loop)
+            future.result()
+
+            if client_src in gfc:
+                gfc[client_src].reset(os.path.dirname(sub_src))
+            if client_dst in gfc:
+                gfc[client_dst].reset(os.path.dirname(sub_dst))
 
 class DCFSSMBFile:
-    def __init__(self, ops: Ops, path: str, mode: str, loop: asyncio.AbstractEventLoop):
+    def __init__(
+        self,
+        ops: Ops,
+        path: str,
+        mode: str,
+        loop: asyncio.AbstractEventLoop,
+        client_name: str,
+    ):
         self.ops = ops
         self.path = path
         self.mode = mode
         self.loop = loop
+        self.client_name = client_name
         self.pos = 0
         self.buffer = bytearray()
 
@@ -238,6 +275,9 @@ class DCFSSMBFile:
                         self.ops.upload_from_bytes(data, self.path), self.loop
                     )
                     future.result()  # Wait for Discord upload to finish
+                    if self.client_name in gfc:
+                        gfc[self.client_name].reset(self.path)
+                        gfc[self.client_name].reset(os.path.dirname(self.path))
                     return
                 except Exception as ex:
                     last_ex = ex

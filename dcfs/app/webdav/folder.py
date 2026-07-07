@@ -35,15 +35,23 @@ class Folder(_Folder):
         if path_parts[0] == "":
             return self
 
-        if fr := self.__sub_files.get(path_parts[0]):
-            return Resource(self._sub_path(path_parts[0]), self.__client, fr=fr)
+        name = path_parts[0]
+        relative_sub_path = self._sub_path(name)
 
-        if path_parts[0] in self.__sub_folders:
+        if fr := self.__sub_files.get(name):
+            if not (res := self.fs_cache.get(relative_sub_path)):
+                res = Resource(relative_sub_path, self.__client, fr=fr)
+                self.fs_cache.set(relative_sub_path, res)
+            return res
+
+        if name in self.__sub_folders:
+            if not (sub_folder := self.fs_cache.get(relative_sub_path)):
+                sub_folder = Folder(f"{relative_sub_path}/", self.__client)
+                self.fs_cache.set(relative_sub_path, sub_folder)
+
             if len(path_parts) > 1:
-                return await Folder(
-                    f"{self._sub_path(path_parts[0])}/", self.__client
-                ).member(path_parts[1])
-            return Folder(f"{self._sub_path(path_parts[0])}/", self.__client)
+                return await sub_folder.member(path_parts[1])
+            return sub_folder
 
         return None
 

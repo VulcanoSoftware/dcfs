@@ -1,13 +1,14 @@
 import asyncio
+import inspect
 import logging
 import os
 import stat
 import time
-from typing import Any, AsyncIterator, List, Optional
+from typing import Any, AsyncIterator, Optional
 
 import asyncssh
-import inspect
 
+from dcfs.app.fs_cache import gfc
 from dcfs.app.utils import normalize_global_path, split_global_path
 from dcfs.config import get_config
 from dcfs.core import Clients, Ops
@@ -22,45 +23,52 @@ class DCFSSFTPHandler(asyncssh.SFTPServer):
         self.clients = clients
         super().__init__(chan)
 
-    def _get_ops(self, path_bytes: bytes) -> tuple[Optional[Ops], str]:
+    def _get_ops(self, path_bytes: bytes) -> tuple[Optional[Ops], str, Optional[str]]:
         path = path_bytes.decode("utf-8", errors="replace")
         if not path:
-            return None, "/"
+            return None, "/", None
 
         try:
             path = normalize_global_path(path)
         except Exception:
             logger.debug(f"Failed to normalize global path: {path}")
-            return None, "/"
+            return None, "/", None
 
         if path in (".", "/"):
-            return None, "/"
+            return None, "/", None
 
         # Handle empty client name edge case
         if path.startswith("//"):
-            return None, "/"
+            return None, "/", None
 
         try:
             client_name, sub_path = split_global_path(path)
             if client_name in self.clients:
-                return Ops(self.clients[client_name]), "/" + sub_path.lstrip("/")
-            else:
-                raise asyncssh.SFTPNoSuchFile(f"No such client: {client_name}")
+                return (
+                    Ops(self.clients[client_name]),
+                    "/" + sub_path.lstrip("/"),
+                    client_name,
+                )
+            raise asyncssh.SFTPNoSuchFile(f"No such client: {client_name}")
         except asyncssh.SFTPNoSuchFile:
             raise
         except Exception:
             logger.debug(f"Failed to split global path: {path}")
-            return None, "/"
+            return None, "/", None
 
         # Fallback to root
-        return None, "/"
+        return None, "/", None
 
     async def scandir(self, path: bytes) -> AsyncIterator[asyncssh.SFTPName]:  # type: ignore[override]
-        ops, sub_path = self._get_ops(path)
+        ops, sub_path, _ = self._get_ops(path)
 
         # Standard . and .. entries
-        yield asyncssh.SFTPName(b".", attrs=asyncssh.SFTPAttrs(permissions=stat.S_IFDIR | 0o755))
-        yield asyncssh.SFTPName(b"..", attrs=asyncssh.SFTPAttrs(permissions=stat.S_IFDIR | 0o755))
+        yield asyncssh.SFTPName(
+            b".", attrs=asyncssh.SFTPAttrs(permissions=stat.S_IFDIR | 0o755)
+        )
+        yield asyncssh.SFTPName(
+            b"..", attrs=asyncssh.SFTPAttrs(permissions=stat.S_IFDIR | 0o755)
+        )
 
         if ops is None:
             if sub_path == "/":
@@ -77,7 +85,9 @@ class DCFSSFTPHandler(asyncssh.SFTPServer):
             try:
                 directory = ops.cd(sub_path)
             except FileOrDirectoryDoesNotExist:
-                raise asyncssh.SFTPNoSuchFile(f"No such directory: {path.decode('utf-8')}")
+                raise asyncssh.SFTPNoSuchFile(
+                    f"No such directory: {path.decode('utf-8')}"
+                )
 
         for d in directory.find_dirs():
             mtime = int(d.modified_at_timestamp / 1000)
@@ -87,17 +97,37 @@ class DCFSSFTPHandler(asyncssh.SFTPServer):
                     permissions=stat.S_IFDIR | 0o755, mtime=mtime, atime=mtime
                 ),
             )
-        for f in directory.find_files():
-            # For files we might not want to fetch full desc just for listing
-            # as it involves network calls to Discord for each file.
-            # We provide the basic mode to help clients like FileZilla.
-            yield asyncssh.SFTPName(
-                f.name.encode("utf-8"),
-                attrs=asyncssh.SFTPAttrs(permissions=stat.S_IFREG | 0o644),
+
+        # Fetch file sizes and mtimes in parallel
+        files = directory.find_files()
+        if files:
+
+            async def _get_file_attrs(fr):
+                try:
+                    fd = await ops.desc(
+                        sub_path.rstrip("/") + "/" + fr.name, validate=False
+                    )
+                    fv = fd.get_latest_version()
+                    size = await ops._client.fc_repo.content_length(fv)
+                    mtime = int(fv.updated_at_timestamp / 1000)
+                    return asyncssh.SFTPAttrs(
+                        permissions=stat.S_IFREG | 0o644,
+                        size=size,
+                        mtime=mtime,
+                        atime=mtime,
+                    )
+                except Exception:
+                    return asyncssh.SFTPAttrs(permissions=stat.S_IFREG | 0o644)
+
+            attrs_list = await asyncio.gather(
+                *[_get_file_attrs(f) for f in files]
             )
 
+            for f, attrs in zip(files, attrs_list):
+                yield asyncssh.SFTPName(f.name.encode("utf-8"), attrs=attrs)
+
     async def stat(self, path: bytes) -> asyncssh.SFTPAttrs:  # type: ignore[override]
-        ops, sub_path = self._get_ops(path)
+        ops, sub_path, _ = self._get_ops(path)
 
         mode = 0
         size = 0
@@ -118,18 +148,34 @@ class DCFSSFTPHandler(asyncssh.SFTPServer):
                     mode = stat.S_IFREG | 0o644
                     mtime = int(fv.updated_at_timestamp / 1000)
                 except FileOrDirectoryDoesNotExist:
-                    raise asyncssh.SFTPNoSuchFile(f"No such file: {path.decode('utf-8')}")
+                    raise asyncssh.SFTPNoSuchFile(
+                        f"No such file: {path.decode('utf-8')}"
+                    )
 
-        return asyncssh.SFTPAttrs(permissions=mode, size=size, mtime=mtime, atime=mtime)
+        return asyncssh.SFTPAttrs(
+            permissions=mode, size=size, mtime=mtime, atime=mtime
+        )
 
     async def open(self, path: bytes, flags: int, attrs: asyncssh.SFTPAttrs) -> 'DCFSSFTPFileBase':  # type: ignore[override]
-        ops, sub_path = self._get_ops(path)
-        if ops is None:
-            raise asyncssh.SFTPPermissionDenied("Cannot open root or client directory")
+        ops, sub_path, client_name = self._get_ops(path)
+        if ops is None or client_name is None:
+            raise asyncssh.SFTPPermissionDenied(
+                "Cannot open root or client directory"
+            )
+
+        if flags & asyncssh.FXF_CREAT:
+            try:
+                await ops.touch(sub_path)
+                if client_name in gfc:
+                    gfc[client_name].reset(os.path.dirname(sub_path))
+            except FileOrDirectoryDoesNotExist:
+                # Parent might not exist, that's fine if we are not creating
+                # or if touch fails it might be caught later
+                pass
 
         mode = ""
-        if flags & asyncssh.FXF_WRITE:
-             mode = "w"
+        if flags & (asyncssh.FXF_WRITE | asyncssh.FXF_APPEND | asyncssh.FXF_CREAT):
+            mode = "w"
         else:
             mode = "r"
 
@@ -143,8 +189,8 @@ class DCFSSFTPHandler(asyncssh.SFTPServer):
                 expected_size = None
 
         if mode == "w" and expected_size is not None:
-            return DCFSSFTPStreamingFile(ops, sub_path, expected_size)
-        return DCFSSFTPBufferedFile(ops, sub_path, mode)
+            return DCFSSFTPStreamingFile(ops, sub_path, expected_size, client_name)
+        return DCFSSFTPBufferedFile(ops, sub_path, mode, client_name)
 
     async def read(self, file_obj: object, offset: int, size: int) -> bytes:  # type: ignore[override]
         if isinstance(file_obj, DCFSSFTPFileBase):
@@ -182,35 +228,58 @@ class DCFSSFTPHandler(asyncssh.SFTPServer):
         return result
 
     async def mkdir(self, path: bytes, attrs: asyncssh.SFTPAttrs) -> None:  # type: ignore[override]
-        ops, sub_path = self._get_ops(path)
-        if ops is None:
-            raise asyncssh.SFTPPermissionDenied("Cannot create directory in root")
+        ops, sub_path, client_name = self._get_ops(path)
+        if ops is None or client_name is None:
+            raise asyncssh.SFTPPermissionDenied(
+                "Cannot create directory in root"
+            )
         await ops.mkdir(sub_path, parents=False)
+        if client_name in gfc:
+            gfc[client_name].reset(os.path.dirname(sub_path))
 
     async def rmdir(self, path: bytes) -> None:  # type: ignore[override]
-        ops, sub_path = self._get_ops(path)
-        if ops is None:
-            raise asyncssh.SFTPPermissionDenied("Cannot remove client directory")
+        ops, sub_path, client_name = self._get_ops(path)
+        if ops is None or client_name is None:
+            raise asyncssh.SFTPPermissionDenied(
+                "Cannot remove client directory"
+            )
         await ops.rm_dir(sub_path, recursive=False)
+        if client_name in gfc:
+            gfc[client_name].reset(os.path.dirname(sub_path))
 
     async def remove(self, path: bytes) -> None:  # type: ignore[override]
-        ops, sub_path = self._get_ops(path)
-        if ops is None:
-            raise asyncssh.SFTPPermissionDenied("Cannot remove client directory")
+        ops, sub_path, client_name = self._get_ops(path)
+        if ops is None or client_name is None:
+            raise asyncssh.SFTPPermissionDenied(
+                "Cannot remove client directory"
+            )
         await ops.rm_file(sub_path)
+        if client_name in gfc:
+            gfc[client_name].reset(os.path.dirname(sub_path))
 
     async def rename(self, oldpath: bytes, newpath: bytes) -> None:  # type: ignore[override]
-        ops_src, sub_src = self._get_ops(oldpath)
-        ops_dst, sub_dst = self._get_ops(newpath)
+        ops_src, sub_src, client_src = self._get_ops(oldpath)
+        ops_dst, sub_dst, client_dst = self._get_ops(newpath)
 
-        if ops_src is None or ops_dst is None or ops_src._client != ops_dst._client:
-             raise asyncssh.SFTPPermissionDenied("Cannot rename across clients")
+        if (
+            ops_src is None
+            or ops_dst is None
+            or ops_src._client != ops_dst._client
+            or client_src is None
+            or client_dst is None
+        ):
+            raise asyncssh.SFTPPermissionDenied("Cannot rename across clients")
 
         try:
             ops_src.cd(sub_src)
             await ops_src.mv_dir(sub_src, sub_dst)
         except FileOrDirectoryDoesNotExist:
             await ops_src.mv_file(sub_src, sub_dst)
+
+        if client_src in gfc:
+            gfc[client_src].reset(os.path.dirname(sub_src))
+        if client_dst in gfc:
+            gfc[client_dst].reset(os.path.dirname(sub_dst))
 
     async def realpath(self, path: bytes) -> bytes:  # type: ignore[override]
         try:
@@ -253,13 +322,13 @@ class DCFSSFTPFileBase:
 
 
 class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
-    def __init__(self, ops: Ops, path: str, mode: str):
+    def __init__(self, ops: Ops, path: str, mode: str, client_name: str):
         self.ops = ops
         self.path = path
         self.mode = mode
+        self.client_name = client_name
         self.buffer = bytearray()
         self.closed = False
-        self._upload_task: Optional[asyncio.Task[None]] = None
 
     async def read(self, offset: int, size: int) -> bytes:
         if "r" not in self.mode:
@@ -303,55 +372,38 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
         self.closed = True
 
         if "w" in self.mode and self.buffer:
-            # Fire-and-forget: upload happens in the background so the
-            # SFTP client does not hang waiting for the Discord upload.
             data = bytes(self.buffer)
             self.buffer.clear()
-            self._upload_task = asyncio.create_task(
-                self._do_upload(data)
-            )
-            self._upload_task.add_done_callback(self._on_upload_done)
 
-    async def _do_upload(self, data: bytes) -> None:
-        """Upload the buffered data with exponential backoff retry on transient errors."""
-        last_ex: Optional[Exception] = None
-        cfg = get_config().dcfs.download
-        for attempt in range(cfg.upload_max_retries):
-            try:
-                await self.ops.upload_from_bytes(data, self.path)
-                logger.info(f"Background upload completed for {self.path}")
-                return
-            except Exception as ex:
-                last_ex = ex
-                if not _is_transient(ex):
-                    logger.error(
-                        f"Permanent upload failure for {self.path}: {ex}"
+            last_ex: Optional[Exception] = None
+            cfg = get_config().dcfs.download
+            for attempt in range(cfg.upload_max_retries):
+                try:
+                    await self.ops.upload_from_bytes(data, self.path)
+                    if self.client_name in gfc:
+                        gfc[self.client_name].reset(self.path)
+                        gfc[self.client_name].reset(os.path.dirname(self.path))
+                    logger.info(f"Upload completed for {self.path}")
+                    return
+                except Exception as ex:
+                    last_ex = ex
+                    if not _is_transient(ex):
+                        logger.error(f"Permanent upload failure for {self.path}: {ex}")
+                        raise
+
+                    delay = cfg.upload_base_retry_delay * (2**attempt)
+                    logger.warning(
+                        f"Transient upload failure for {self.path} ({ex}). "
+                        f"Retry {attempt + 1}/{cfg.upload_max_retries} in {delay:.1f}s..."
                     )
-                    return  # Don't raise — fire-and-forget, just log
+                    await asyncio.sleep(delay)
 
-                delay = cfg.upload_base_retry_delay * (2**attempt)
-                logger.warning(
-                    f"Transient upload failure for {self.path} ({ex}). "
-                    f"Retry {attempt + 1}/{cfg.upload_max_retries} in {delay:.1f}s..."
-                )
-                await asyncio.sleep(delay)
-
-        logger.error(
-            f"Background upload failed for {self.path} after "
-            f"{cfg.upload_max_retries} retries: {last_ex}",
-            exc_info=last_ex,
-        )
-
-    def _on_upload_done(self, task: asyncio.Task[None]) -> None:
-        try:
-            exc = task.exception()
-            if exc is not None:
-                logger.error(
-                    f"Background upload failed for {self.path}: {exc}",
-                    exc_info=exc,
-                )
-        except asyncio.CancelledError:
-            logger.warning(f"Background upload cancelled for {self.path}")
+            logger.error(
+                f"Upload failed for {self.path} after "
+                f"{cfg.upload_max_retries} retries: {last_ex}",
+                exc_info=last_ex,
+            )
+            raise last_ex  # type: ignore[misc]
 
     async def fstat(self) -> asyncssh.SFTPAttrs:
         if "w" in self.mode:
@@ -376,21 +428,19 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
 
 
 class DCFSSFTPStreamingFile(DCFSSFTPFileBase):
-    def __init__(self, ops: Ops, path: str, expected_size: int):
+    def __init__(self, ops: Ops, path: str, expected_size: int, client_name: str):
         self.ops = ops
         self.path = path
         self.expected_size = expected_size
+        self.client_name = client_name
         self.closed = False
 
         self._queue: asyncio.Queue[Optional[bytes]] = asyncio.Queue(maxsize=32)
         self._pending: dict[int, bytes] = {}
         self._next_offset = 0
         # Start the upload task immediately so it consumes from the queue
-        # concurrently with writes. The task is not awaited on close() —
-        # instead it runs to completion in the background so the SFTP
-        # client does not hang waiting for the Discord upload to finish.
+        # concurrently with writes.
         self._upload_task = asyncio.create_task(self._run_upload())
-        self._upload_task.add_done_callback(self._on_upload_done)
 
     async def _stream(self) -> AsyncIterator[bytes]:
         while True:
@@ -417,6 +467,9 @@ class DCFSSFTPStreamingFile(DCFSSFTPFileBase):
                 await self.ops.upload_from_stream(
                     self._stream(), self.expected_size, self.path
                 )
+                if self.client_name in gfc:
+                    gfc[self.client_name].reset(self.path)
+                    gfc[self.client_name].reset(os.path.dirname(self.path))
                 return
             except Exception as ex:
                 last_ex = ex
@@ -424,7 +477,7 @@ class DCFSSFTPStreamingFile(DCFSSFTPFileBase):
                     logger.error(
                         f"Permanent streaming upload failure for {self.path}: {ex}"
                     )
-                    return  # Don't raise — fire-and-forget, just log
+                    raise
 
                 # If data has already been consumed from the queue we cannot
                 # retry because the queue items are gone.
@@ -435,7 +488,7 @@ class DCFSSFTPStreamingFile(DCFSSFTPFileBase):
                         f"Streaming upload failed after {self._next_offset} bytes "
                         f"for {self.path}: {ex}.  Cannot retry — stream consumed."
                     )
-                    return
+                    raise
 
                 delay = cfg.upload_base_retry_delay * (2**attempt)
                 logger.warning(
@@ -449,17 +502,7 @@ class DCFSSFTPStreamingFile(DCFSSFTPFileBase):
             f"{cfg.upload_max_retries} retries: {last_ex}",
             exc_info=last_ex,
         )
-
-    def _on_upload_done(self, task: asyncio.Task[None]) -> None:
-        try:
-            exc = task.exception()
-            if exc is not None:
-                logger.error(
-                    f"Background upload failed for {self.path}: {exc}",
-                    exc_info=exc,
-                )
-        except asyncio.CancelledError:
-            logger.warning(f"Background upload cancelled for {self.path}")
+        raise last_ex  # type: ignore[misc]
 
     async def read(self, offset: int, size: int) -> bytes:
         raise asyncssh.SFTPOpUnsupported("Streaming file handle does not support reads")
@@ -504,10 +547,9 @@ class DCFSSFTPStreamingFile(DCFSSFTPFileBase):
                 f"Upload incomplete: received {self._next_offset} of {self.expected_size} bytes"
             )
 
-        # Signal end-of-stream to the upload task and return immediately.
-        # The Discord upload continues in the background — we do NOT await
-        # the upload task here so the SFTP client doesn't hang at 100%.
+        # Signal end-of-stream to the upload task and await it.
         await self._queue.put(None)
+        await self._upload_task
 
     async def fstat(self) -> asyncssh.SFTPAttrs:
         now = int(time.time())

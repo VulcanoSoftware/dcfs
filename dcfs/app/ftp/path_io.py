@@ -7,6 +7,7 @@ from typing import AsyncIterator, Optional
 
 import aioftp
 
+from dcfs.app.fs_cache import gfc
 from dcfs.app.utils import normalize_global_path, split_global_path
 from dcfs.config import get_config
 from dcfs.core import Clients, Ops
@@ -21,10 +22,12 @@ class DCFSPathIO(aioftp.AbstractPathIO):
         super().__init__()
         self.clients = clients
 
-    def _get_ops(self, path: pathlib.PurePosixPath) -> tuple[Optional[Ops], str]:
+    def _get_ops(
+        self, path: pathlib.PurePosixPath
+    ) -> tuple[Optional[Ops], str, Optional[str]]:
         path_str = str(path)
         if not path_str:
-            return None, "/"
+            return None, "/", None
 
         try:
             path_str = normalize_global_path(path_str)
@@ -32,22 +35,26 @@ class DCFSPathIO(aioftp.AbstractPathIO):
             logger.debug(f"Failed to normalize global path: {path_str}")
 
         if path_str in (".", "/"):
-            return None, "/"
+            return None, "/", None
 
         try:
             client_name, sub_path = split_global_path(path_str)
             if client_name in self.clients:
-                return Ops(self.clients[client_name]), "/" + sub_path.lstrip("/")
+                return (
+                    Ops(self.clients[client_name]),
+                    "/" + sub_path.lstrip("/"),
+                    client_name,
+                )
             raise FileNotFoundError(f"No such client: {client_name}")
         except FileNotFoundError:
             raise
         except Exception:
             logger.debug(f"Failed to split global path: {path_str}")
-        return None, path_str
+        return None, path_str, None
 
     async def exists(self, path: pathlib.PurePosixPath) -> bool:
         try:
-            ops, sub_path = self._get_ops(path)
+            ops, sub_path, _ = self._get_ops(path)
         except FileNotFoundError:
             return False
 
@@ -73,7 +80,7 @@ class DCFSPathIO(aioftp.AbstractPathIO):
 
     async def is_dir(self, path: pathlib.PurePosixPath) -> bool:
         try:
-            ops, sub_path = self._get_ops(path)
+            ops, sub_path, _ = self._get_ops(path)
         except FileNotFoundError:
             return False
 
@@ -91,7 +98,7 @@ class DCFSPathIO(aioftp.AbstractPathIO):
 
     async def is_file(self, path: pathlib.PurePosixPath) -> bool:
         try:
-            ops, sub_path = self._get_ops(path)
+            ops, sub_path, _ = self._get_ops(path)
         except FileNotFoundError:
             return False
 
@@ -111,30 +118,38 @@ class DCFSPathIO(aioftp.AbstractPathIO):
         parents: bool = False,
         exist_ok: bool = False,
     ) -> None:
-        ops, sub_path = self._get_ops(path)
-        if ops is None:
+        ops, sub_path, client_name = self._get_ops(path)
+        if ops is None or client_name is None:
             raise PermissionError("Cannot create directory in root")
         try:
             await ops.mkdir(sub_path, parents)
+            if client_name in gfc:
+                gfc[client_name].reset(os.path.dirname(sub_path))
         except Exception:
             if not exist_ok:
                 raise
 
     async def rmdir(self, path: pathlib.PurePosixPath) -> None:
-        ops, sub_path = self._get_ops(path)
-        if ops is None:
+        ops, sub_path, client_name = self._get_ops(path)
+        if ops is None or client_name is None:
             raise PermissionError("Cannot remove client directory")
         await ops.rm_dir(sub_path, recursive=False)
+        if client_name in gfc:
+            gfc[client_name].reset(os.path.dirname(sub_path))
 
     async def unlink(self, path: pathlib.PurePosixPath) -> None:
-        ops, sub_path = self._get_ops(path)
-        if ops is None:
+        ops, sub_path, client_name = self._get_ops(path)
+        if ops is None or client_name is None:
             raise PermissionError("Cannot unlink client directory")
         await ops.rm_file(sub_path)
+        if client_name in gfc:
+            gfc[client_name].reset(os.path.dirname(sub_path))
 
-    async def list(self, path: pathlib.PurePosixPath) -> AsyncIterator[pathlib.PurePosixPath]:
+    async def list(
+        self, path: pathlib.PurePosixPath
+    ) -> AsyncIterator[pathlib.PurePosixPath]:
         try:
-            ops, sub_path = self._get_ops(path)
+            ops, sub_path, _ = self._get_ops(path)
         except FileNotFoundError:
             return
 
@@ -147,15 +162,30 @@ class DCFSPathIO(aioftp.AbstractPathIO):
         if sub_path == "/":
             directory = ops._client.dir_api.root
         else:
-            directory = ops.cd(sub_path)
+            try:
+                directory = ops.cd(sub_path)
+            except FileOrDirectoryDoesNotExist:
+                return
+
+        # Pre-fetch file descriptors in parallel to populate the repository cache.
+        # This makes subsequent sequential stat calls from the FTP server much faster.
+        files = directory.find_files()
+        if files:
+            await asyncio.gather(
+                *[
+                    ops.desc(sub_path.rstrip("/") + "/" + f.name, validate=False)
+                    for f in files
+                ],
+                return_exceptions=True,
+            )
 
         for d in directory.find_dirs():
             yield path / d.name
-        for f in directory.find_files():
+        for f in files:
             yield path / f.name
 
     async def stat(self, path: pathlib.PurePosixPath) -> os.stat_result:
-        ops, sub_path = self._get_ops(path)
+        ops, sub_path, _ = self._get_ops(path)
 
         mode = 0
         size = 0
@@ -179,10 +209,10 @@ class DCFSPathIO(aioftp.AbstractPathIO):
         return os.stat_result((mode, 0, 0, 0, 0, 0, size, mtime, mtime, mtime))
 
     async def _open(self, path: pathlib.PurePosixPath, mode: str) -> "DCFSFileIO":  # type: ignore[override]
-        ops, sub_path = self._get_ops(path)
-        if ops is None:
+        ops, sub_path, client_name = self._get_ops(path)
+        if ops is None or client_name is None:
             raise PermissionError("Cannot open root or client directory")
-        return DCFSFileIO(ops, sub_path, mode)
+        return DCFSFileIO(ops, sub_path, mode, client_name)
 
     async def read(self, file: "DCFSFileIO", block_size: int) -> bytes:  # type: ignore[override]
         return await file.read(block_size)
@@ -197,12 +227,20 @@ class DCFSPathIO(aioftp.AbstractPathIO):
     async def close(self, file: "DCFSFileIO") -> None:  # type: ignore[override]
         await file.close()
 
-    async def rename(self, source: pathlib.PurePosixPath, destination: pathlib.PurePosixPath) -> None:
-        ops_src, sub_src = self._get_ops(source)
-        ops_dst, sub_dst = self._get_ops(destination)
+    async def rename(
+        self, source: pathlib.PurePosixPath, destination: pathlib.PurePosixPath
+    ) -> None:
+        ops_src, sub_src, client_src = self._get_ops(source)
+        ops_dst, sub_dst, client_dst = self._get_ops(destination)
 
-        if ops_src is None or ops_dst is None or ops_src._client != ops_dst._client:
-             raise PermissionError("Cannot rename across clients")
+        if (
+            ops_src is None
+            or ops_dst is None
+            or ops_src._client != ops_dst._client
+            or client_src is None
+            or client_dst is None
+        ):
+            raise PermissionError("Cannot rename across clients")
 
         # Check if source is dir or file
         try:
@@ -211,12 +249,18 @@ class DCFSPathIO(aioftp.AbstractPathIO):
         except FileOrDirectoryDoesNotExist:
             await ops_src.mv_file(sub_src, sub_dst)
 
+        if client_src in gfc:
+            gfc[client_src].reset(os.path.dirname(sub_src))
+        if client_dst in gfc:
+            gfc[client_dst].reset(os.path.dirname(sub_dst))
+
 
 class DCFSFileIO:
-    def __init__(self, ops: Ops, path: str, mode: str):
+    def __init__(self, ops: Ops, path: str, mode: str, client_name: str):
         self.ops = ops
         self.path = path
         self.mode = mode
+        self.client_name = client_name
         self.buffer = bytearray()
         self.pos = 0
         self.closed = False
@@ -284,6 +328,9 @@ class DCFSFileIO:
             for attempt in range(max_retries):
                 try:
                     await self.ops.upload_from_bytes(data, self.path)
+                    if self.client_name in gfc:
+                        gfc[self.client_name].reset(self.path)
+                        gfc[self.client_name].reset(os.path.dirname(self.path))
                     return
                 except Exception as ex:
                     last_ex = ex
@@ -315,7 +362,7 @@ class DCFSFileIO:
                 self.buffer = bytearray()
                 self.pos = offset
             return self.pos
-        elif whence == os.SEEK_CUR:
+        if whence == os.SEEK_CUR:
             # We don't support moving CUR except by 0 for now to keep it simple,
             # but usually it's used with 0 to get current pos.
             self.pos += offset

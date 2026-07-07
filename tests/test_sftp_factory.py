@@ -24,23 +24,13 @@ async def test_sftp_factory_logic(mocker):
 
     assert sftp_factory is not None
 
-    # Simulate asyncssh calling sftp_factory(conn)
-    mock_conn = MagicMock()
-    handler_factory = sftp_factory(mock_conn)
-
-    # It should return a callable (the handler factory)
-    assert callable(handler_factory)
-
-    # Simulate asyncssh calling handler_factory(chan)
-    mock_chan = MagicMock()
-    # We need to mock DCFSSFTPHandler because it calls super().__init__(chan)
-    # which might try to do things with the mock_chan.
-    # Actually, let's just see if it instantiates.
+    # Simulate asyncssh calling sftp_factory(channel)
+    mock_channel = MagicMock()
 
     # Mock SFTPServer.__init__ to avoid side effects
     mocker.patch('asyncssh.SFTPServer.__init__', return_value=None)
 
-    handler = handler_factory(mock_chan)
+    handler = sftp_factory(mock_channel)
 
     assert isinstance(handler, DCFSSFTPHandler)
     assert handler.clients == clients

@@ -37,12 +37,19 @@ class DCFSSMBStorage:
             client_name, sub_path = split_global_path(path)
             if client_name in self.clients:
                 return Ops(self.clients[client_name]), "/" + sub_path.lstrip("/")
+            raise OSError(f"No such client: {client_name}")
+        except OSError:
+            raise
         except Exception:
              logger.debug(f"Failed to split global path: {path}")
         return None, path
 
     def listPath(self, path: str, filter: str = "*"):
-        ops, sub_path = self._get_ops(path)
+        try:
+            ops, sub_path = self._get_ops(path)
+        except OSError:
+            return []
+
         results = []
 
         if ops is None:
@@ -245,7 +252,11 @@ class DCFSSMBFile:
                         f"Transient upload failure for {self.path} ({ex}). "
                         f"Retry {attempt + 1}/{max_retries} in {delay:.1f}s..."
                     )
-                    time.sleep(delay)
+                    # Use async sleep on the event loop so the Discord
+                    # gateway heartbeat and other tasks keep running.
+                    asyncio.run_coroutine_threadsafe(
+                        asyncio.sleep(delay), self.loop
+                    ).result()
 
             logger.error(
                 f"Upload failed for {self.path} after {max_retries} retries: {last_ex}",

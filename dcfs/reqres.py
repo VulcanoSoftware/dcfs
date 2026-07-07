@@ -1,3 +1,4 @@
+import asyncio
 import os
 from collections import deque
 from dataclasses import dataclass, field
@@ -196,19 +197,19 @@ class FileMessageFromPath(UploadableFileMessage):
     async def open(self) -> None:
         await super().open()
         if self._fd:
-            self._fd.seek(self._offset)
+            await asyncio.to_thread(self._fd.seek, self._offset)
 
     async def read(self, length: int) -> bytes:
         size_to_read = min(length, self.size - self._read_size)
         if size_to_read <= 0:
             return b""
-        chunk = self._fd.read(size_to_read)
+        chunk = await asyncio.to_thread(self._fd.read, size_to_read)
         self._read_size += len(chunk)
         return chunk
 
     async def close(self) -> None:
         if self._fd:
-            self._fd.close()
+            await asyncio.to_thread(self._fd.close)
 
     def file_name(self) -> str:
         return self.name or os.path.basename(self.path)

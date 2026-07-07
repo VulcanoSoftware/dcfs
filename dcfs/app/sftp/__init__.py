@@ -50,8 +50,8 @@ async def create_sftp_server(clients: Clients, config: Config):
     def server_factory():
         return DCFSSFTPServer(clients, config)
 
-    def sftp_factory(conn):
-        return lambda chan: DCFSSFTPHandler(clients, chan)
+    def sftp_factory(channel):
+        return DCFSSFTPHandler(clients, channel)
 
     return await asyncssh.create_server(
         server_factory,

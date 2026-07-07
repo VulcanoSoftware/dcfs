@@ -59,15 +59,15 @@ class DCFSSFTPHandler(asyncssh.SFTPServer):
         ops, sub_path = self._get_ops(path)
 
         # Standard . and .. entries
-        yield asyncssh.SFTPName(b".", attrs=asyncssh.SFTPAttrs(mode=stat.S_IFDIR | 0o755))
-        yield asyncssh.SFTPName(b"..", attrs=asyncssh.SFTPAttrs(mode=stat.S_IFDIR | 0o755))
+        yield asyncssh.SFTPName(b".", attrs=asyncssh.SFTPAttrs(permissions=stat.S_IFDIR | 0o755))
+        yield asyncssh.SFTPName(b"..", attrs=asyncssh.SFTPAttrs(permissions=stat.S_IFDIR | 0o755))
 
         if ops is None:
             if sub_path == "/":
                 for client_name in self.clients:
                     yield asyncssh.SFTPName(
                         client_name.encode("utf-8"),
-                        attrs=asyncssh.SFTPAttrs(mode=stat.S_IFDIR | 0o755),
+                        attrs=asyncssh.SFTPAttrs(permissions=stat.S_IFDIR | 0o755),
                     )
             return
 
@@ -84,7 +84,7 @@ class DCFSSFTPHandler(asyncssh.SFTPServer):
             yield asyncssh.SFTPName(
                 d.name.encode("utf-8"),
                 attrs=asyncssh.SFTPAttrs(
-                    mode=stat.S_IFDIR | 0o755, mtime=mtime, atime=mtime
+                    permissions=stat.S_IFDIR | 0o755, mtime=mtime, atime=mtime
                 ),
             )
         for f in directory.find_files():
@@ -93,7 +93,7 @@ class DCFSSFTPHandler(asyncssh.SFTPServer):
             # We provide the basic mode to help clients like FileZilla.
             yield asyncssh.SFTPName(
                 f.name.encode("utf-8"),
-                attrs=asyncssh.SFTPAttrs(mode=stat.S_IFREG | 0o644),
+                attrs=asyncssh.SFTPAttrs(permissions=stat.S_IFREG | 0o644),
             )
 
     async def stat(self, path: bytes) -> asyncssh.SFTPAttrs:  # type: ignore[override]
@@ -120,7 +120,7 @@ class DCFSSFTPHandler(asyncssh.SFTPServer):
                 except FileOrDirectoryDoesNotExist:
                     raise asyncssh.SFTPNoSuchFile(f"No such file: {path.decode('utf-8')}")
 
-        return asyncssh.SFTPAttrs(mode=mode, size=size, mtime=mtime, atime=mtime)
+        return asyncssh.SFTPAttrs(permissions=mode, size=size, mtime=mtime, atime=mtime)
 
     async def open(self, path: bytes, flags: int, attrs: asyncssh.SFTPAttrs) -> 'DCFSSFTPFileBase':  # type: ignore[override]
         ops, sub_path = self._get_ops(path)
@@ -214,10 +214,29 @@ class DCFSSFTPHandler(asyncssh.SFTPServer):
 
     async def realpath(self, path: bytes) -> bytes:  # type: ignore[override]
         try:
-            normalized = normalize_global_path(path.decode("utf-8"))
-            return normalized.encode("utf-8")
+            decoded = path.decode("utf-8")
+        except Exception:
+            return b"/"
+
+        try:
+            normalized = normalize_global_path(decoded)
         except Exception:
             return b"/" + path.lstrip(b"/")
+
+        # Root always exists
+        if normalized == "/":
+            return b"/"
+
+        # Validate the client name exists (no network call)
+        try:
+            client_name, sub_path = split_global_path(normalized)
+        except Exception:
+            raise asyncssh.SFTPNoSuchFile(f"Invalid path: {decoded}")
+
+        if client_name not in self.clients:
+            raise asyncssh.SFTPNoSuchFile(f"No such client: {client_name}")
+
+        return normalized.encode("utf-8")
 
 class DCFSSFTPFileBase:
     async def read(self, offset: int, size: int) -> bytes:
@@ -338,7 +357,7 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
         if "w" in self.mode:
             now = int(time.time())
             return asyncssh.SFTPAttrs(
-                mode=stat.S_IFREG | 0o644,
+                permissions=stat.S_IFREG | 0o644,
                 size=len(self.buffer),
                 mtime=now,
                 atime=now,
@@ -349,7 +368,7 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
         size = await self.ops._client.fc_repo.content_length(fv)
         mtime = int(fv.updated_at_timestamp / 1000)
         return asyncssh.SFTPAttrs(
-            mode=stat.S_IFREG | 0o644,
+            permissions=stat.S_IFREG | 0o644,
             size=size,
             mtime=mtime,
             atime=mtime,
@@ -493,7 +512,7 @@ class DCFSSFTPStreamingFile(DCFSSFTPFileBase):
     async def fstat(self) -> asyncssh.SFTPAttrs:
         now = int(time.time())
         return asyncssh.SFTPAttrs(
-            mode=stat.S_IFREG | 0o644,
+            permissions=stat.S_IFREG | 0o644,
             size=self.expected_size,
             mtime=now,
             atime=now,

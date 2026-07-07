@@ -38,12 +38,19 @@ class DCFSPathIO(aioftp.AbstractPathIO):
             client_name, sub_path = split_global_path(path_str)
             if client_name in self.clients:
                 return Ops(self.clients[client_name]), "/" + sub_path.lstrip("/")
+            raise FileNotFoundError(f"No such client: {client_name}")
+        except FileNotFoundError:
+            raise
         except Exception:
             logger.debug(f"Failed to split global path: {path_str}")
         return None, path_str
 
     async def exists(self, path: pathlib.PurePosixPath) -> bool:
-        ops, sub_path = self._get_ops(path)
+        try:
+            ops, sub_path = self._get_ops(path)
+        except FileNotFoundError:
+            return False
+
         if ops is None:
             if sub_path == "/":
                 return True
@@ -65,7 +72,11 @@ class DCFSPathIO(aioftp.AbstractPathIO):
                 return False
 
     async def is_dir(self, path: pathlib.PurePosixPath) -> bool:
-        ops, sub_path = self._get_ops(path)
+        try:
+            ops, sub_path = self._get_ops(path)
+        except FileNotFoundError:
+            return False
+
         if ops is None:
             return True  # Root or client root
 
@@ -79,7 +90,11 @@ class DCFSPathIO(aioftp.AbstractPathIO):
             return False
 
     async def is_file(self, path: pathlib.PurePosixPath) -> bool:
-        ops, sub_path = self._get_ops(path)
+        try:
+            ops, sub_path = self._get_ops(path)
+        except FileNotFoundError:
+            return False
+
         if ops is None:
             return False
 
@@ -118,7 +133,11 @@ class DCFSPathIO(aioftp.AbstractPathIO):
         await ops.rm_file(sub_path)
 
     async def list(self, path: pathlib.PurePosixPath) -> AsyncIterator[pathlib.PurePosixPath]:
-        ops, sub_path = self._get_ops(path)
+        try:
+            ops, sub_path = self._get_ops(path)
+        except FileNotFoundError:
+            return
+
         if ops is None:
             if sub_path == "/":
                 for client_name in self.clients:

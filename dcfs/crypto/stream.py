@@ -19,6 +19,7 @@ crypto-chunks, so we keep a small ``_pending`` buffer to span the two.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 
@@ -187,6 +188,10 @@ class EncryptingFileMessage(UploadableFileMessage):
             encrypted = self.cipher.encrypt_chunk(plaintext_chunk, self._chunk_index)
             self._chunk_index += 1
             self._pending = encrypted
+
+            # Yield to the event loop so the Discord gateway heartbeat
+            # and other async tasks can make progress during large uploads.
+            await asyncio.sleep(0)
 
         self._read_size += len(out)
         return bytes(out)

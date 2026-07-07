@@ -114,6 +114,11 @@ class DCMsgFileContentRepository(IFileContentRepository):
                 )
             )
 
+            # Yield to the event loop between parts so the Discord
+            # gateway heartbeat and other async tasks can make progress
+            # during large uploads.
+            await asyncio.sleep(0)
+
             # Advance the source message to the next part
             file_msg.next_part(part_size)
 

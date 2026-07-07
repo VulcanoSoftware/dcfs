@@ -425,6 +425,11 @@ async def _decrypting_stream(
             if emitted >= trim_total:
                 return
 
+            # Yield to the event loop between decrypting chunks so the
+            # Discord gateway heartbeat and other async tasks can make
+            # progress during large downloads.
+            await asyncio.sleep(0)
+
     # Stream exhausted. Anything left in ``buf`` is the final requested
     # chunk -- its on-wire size is ``len(buf)``, which may equal ``stride``
     # (full chunk) or less (final chunk of the file).

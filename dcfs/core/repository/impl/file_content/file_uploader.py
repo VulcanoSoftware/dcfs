@@ -1,3 +1,4 @@
+import asyncio
 import io
 import logging
 import os
@@ -74,6 +75,11 @@ class FileUploader:
             if await self._cancelled():
                 logger.warning(f"Upload cancelled for {self._file_name}")
                 return 0
+
+            # Yield to the event loop between 1MiB reads so the Discord
+            # gateway heartbeat and other async tasks can make progress
+            # during large uploads.
+            await asyncio.sleep(0)
 
         size = self._buffer.tell()
         self._buffer.seek(0)

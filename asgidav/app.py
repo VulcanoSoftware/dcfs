@@ -12,7 +12,7 @@ from dcfs.errors import TechnicalError
 
 from .folder import Folder
 from .member import Member
-from .reqres import PropfindRequest, propfind
+from .reqres import PropfindRequest, propfind, proppatch
 from .resource import Resource
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,7 @@ METHODS = frozenset(
         "DELETE",
         "OPTIONS",
         "PROPFIND",
+        "PROPPATCH",
         "COPY",
         "MOVE",
         "MKCOL",
@@ -96,6 +97,19 @@ def create_app(
         r = await PropfindRequest.from_request(request)
         if member := await get_member(path):
             resp = await propfind((member,), r.depth, r.props, base_path)
+            return Response(
+                resp,
+                status_code=HTTPStatus.MULTI_STATUS,
+                media_type="application/xml; charset=utf-8",
+                headers=common_headers
+                | {"Content-Type": "application/xml; charset=utf-8"},
+            )
+        return NOT_FOUND
+
+    @app.api_route("/{path:path}", methods=["PROPPATCH"])
+    async def handle_proppatch(request: Request, path: str):
+        if member := await get_member(path):
+            resp = await proppatch(member, request, base_path)
             return Response(
                 resp,
                 status_code=HTTPStatus.MULTI_STATUS,

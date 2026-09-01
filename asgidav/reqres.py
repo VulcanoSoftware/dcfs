@@ -162,11 +162,13 @@ async def proppatch(
         body = await request.body()
         if body:
             parsed = et.fromstring(body)
-            for child in parsed.xpath(
+            nodes = parsed.xpath(
                 ".//*[local-name()='set' or local-name()='remove']/*[local-name()='prop']/*"
-            ):
-                if isinstance(child.tag, str):
-                    et.SubElement(prop_elem, child.tag)
+            )
+            if isinstance(nodes, list):
+                for child in nodes:
+                    if isinstance(child, Element) and isinstance(child.tag, str):
+                        et.SubElement(prop_elem, child.tag)
     except Exception:
         pass
 

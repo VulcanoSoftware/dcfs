@@ -169,7 +169,7 @@ async def proppatch(
                 for child in nodes:
                     if isinstance(child, Element) and isinstance(child.tag, str):
                         et.SubElement(prop_elem, child.tag)
-    except Exception:
+    except (et.XMLSyntaxError, TypeError, ValueError):
         pass
 
     status = et.SubElement(propstat_elem, _tag("status"))

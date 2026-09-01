@@ -1,7 +1,7 @@
 import pytest
 from fastapi import Request
 
-from asgidav.reqres import PropfindRequest, _propfind_response, _propstat, propfind
+from asgidav.reqres import PropfindRequest, _propfind_response, _propstat, propfind, proppatch
 
 from .common import MockFolder, MockResource
 
@@ -159,3 +159,25 @@ class TestPropfindFunctions:
 
         assert isinstance(result, str)
         assert "multistatus" in result
+
+    @pytest.mark.asyncio
+    async def test_proppatch(self, mocker):
+        resource = MockResource("/test.txt")
+        mock_request = mocker.Mock(spec=Request)
+        mock_request.body = mocker.AsyncMock(
+            return_value=b"""<?xml version="1.0" encoding="utf-8" ?>
+            <D:propertyupdate xmlns:D="DAV:">
+                <D:set>
+                    <D:prop>
+                        <Win32LastModifiedTime xmlns="DAV:">Wed, 01 Sep 2026 13:39:00 GMT</Win32LastModifiedTime>
+                    </D:prop>
+                </D:set>
+            </D:propertyupdate>"""
+        )
+
+        result = await proppatch(resource, mock_request, "/webdav")
+
+        assert isinstance(result, str)
+        assert "multistatus" in result
+        assert "Win32LastModifiedTime" in result
+        assert "HTTP/1.1 200 OK" in result

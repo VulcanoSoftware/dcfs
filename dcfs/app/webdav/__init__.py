@@ -20,7 +20,14 @@ async def _get_member(path: str, clients: Clients) -> Optional[Member]:
             folders[client_name] = folder
         return RootFolder(folders)
 
-    client_name, sub_path = split_global_path(path)
+    try:
+        client_name, sub_path = split_global_path(path)
+    except Exception:
+        return None
+
+    if client_name not in clients or client_name not in gfc:
+        return None
+
     cache = gfc[client_name]
 
     if not (root := cache.get("/")):

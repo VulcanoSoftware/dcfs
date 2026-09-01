@@ -142,3 +142,38 @@ async def propfind(
 
     et.register_namespace("D", DAV_NS)
     return et.tostring(root, encoding="unicode")
+
+
+async def proppatch(
+    member: Member,
+    request: Request,
+    base_path: str,
+) -> str:
+    root = et.Element(_tag("multistatus"), nsmap=NS_MAP)
+    response_elem = et.SubElement(root, _tag("response"))
+
+    href = et.SubElement(response_elem, _tag("href"))
+    href.text = quote(f"{base_path}{member.path}", safe="/")
+
+    propstat_elem = et.SubElement(response_elem, _tag("propstat"))
+    prop_elem = et.SubElement(propstat_elem, _tag("prop"))
+
+    try:
+        body = await request.body()
+        if body:
+            parsed = et.fromstring(body)
+            nodes = parsed.xpath(
+                ".//*[local-name()='set' or local-name()='remove']/*[local-name()='prop']/*"
+            )
+            if isinstance(nodes, list):
+                for child in nodes:
+                    if isinstance(child, Element) and isinstance(child.tag, str):
+                        et.SubElement(prop_elem, child.tag)
+    except (et.XMLSyntaxError, TypeError, ValueError):
+        pass
+
+    status = et.SubElement(propstat_elem, _tag("status"))
+    status.text = "HTTP/1.1 200 OK"
+
+    et.register_namespace("D", DAV_NS)
+    return et.tostring(root, encoding="unicode")

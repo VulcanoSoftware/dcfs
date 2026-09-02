@@ -106,3 +106,32 @@ async def test_sftp_buffered_file_prefetch_error():
         await file_handle.read(0, 100)
 
     await file_handle.close()
+
+
+@pytest.mark.asyncio
+async def test_sftp_buffered_file_pipelined_out_of_order_reads():
+    mock_ops = MagicMock()
+    chunk1 = b"A" * 65536  # bytes 0..65535
+    chunk2 = b"B" * 65536  # bytes 65536..131071
+
+    mock_ops.download = AsyncMock(return_value=mock_download_gen([chunk1, chunk2]))
+
+    file_handle = DCFSSFTPBufferedFile(mock_ops, "/pipelined.txt", "r", "client1")
+
+    # Read offset 0 first so download stream starts at 0
+    data1 = await file_handle.read(0, 32768)
+    assert data1 == b"A" * 32768
+    assert mock_ops.download.call_count == 1
+
+    # Pipelined request for offset 65536 arrives BEFORE request for offset 32768
+    data3 = await file_handle.read(65536, 32768)
+    assert data3 == b"B" * 32768
+    assert mock_ops.download.call_count == 1
+
+    # Request for offset 32768 arrives (out of order, behind current 65536 offset)
+    data2 = await file_handle.read(32768, 32768)
+    assert data2 == b"A" * 32768
+    # Should STILL be 1 download call because byte range was retained in buffer!
+    assert mock_ops.download.call_count == 1
+
+    await file_handle.close()

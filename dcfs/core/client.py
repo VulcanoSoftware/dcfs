@@ -36,7 +36,7 @@ class Client:
         metadata_cfg: MetadataConfig,
         discord_api: DiscordApi,
         encryption_cfg: Optional[EncryptionConfig] = None,
-        download_max_concurrent_parts: int = 3,
+        download_max_concurrent_parts: int = 6,
     ) -> "Client":
         channel = await discord_api.next_bot.resolve_channel_id(channel_id)
         message_api = MessageApi(discord_api, channel)

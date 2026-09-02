@@ -1,7 +1,10 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock
-from dcfs.core.api.message import MessageApi, OVERFLOW_SENTINEL, OVERFLOW_FILENAME
-from dcfs.reqres import SendMessageResp, MessageResp, Document
+
+import pytest
+
+from dcfs.core.api.message import OVERFLOW_FILENAME, OVERFLOW_SENTINEL, MessageApi
+from dcfs.reqres import Document, MessageResp, SendMessageResp
+
 
 @pytest.mark.asyncio
 async def test_send_text_overflow(mocker):

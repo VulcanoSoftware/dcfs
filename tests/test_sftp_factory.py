@@ -1,7 +1,10 @@
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
+
 from dcfs.app.sftp import create_sftp_server
 from dcfs.app.sftp.handler import DCFSSFTPHandler
+
 
 @pytest.mark.asyncio
 async def test_sftp_factory_logic(mocker):

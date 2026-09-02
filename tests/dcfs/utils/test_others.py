@@ -22,11 +22,11 @@ class TestOthers:
 
     def test_is_big_file_small_file(self):
         assert is_big_file(1024) is False
-        assert is_big_file(10 * 1024 * 1024 - 1) is False
+        assert is_big_file(2 * 1024 * 1024 - 1) is False
 
     def test_is_big_file_big_file(self):
-        assert is_big_file(10 * 1024 * 1024) is False
-        assert is_big_file(10 * 1024 * 1024 + 1) is True
+        assert is_big_file(2 * 1024 * 1024) is True
+        assert is_big_file(10 * 1024 * 1024) is True
         assert is_big_file(50 * 1024 * 1024) is True
 
     def test_is_big_file_edge_case(self):

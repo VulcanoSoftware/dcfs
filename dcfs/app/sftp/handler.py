@@ -333,7 +333,7 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
         # Read streaming state
         self._read_stream: Optional[AsyncIterator[bytes]] = None
         self._read_iter: Optional[AsyncIterator[bytes]] = None
-        self._read_pos = 0
+        self._buf_offset = 0
         self._read_buf = bytearray()
         self._read_lock = asyncio.Lock()
         self._cached_attrs: Optional[asyncssh.SFTPAttrs] = None
@@ -343,15 +343,22 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
             raise asyncssh.SFTPPermissionDenied("File not open for reading")
 
         async with self._read_lock:
-            # If we don't have a stream or it's at the wrong position, start a new one.
-            if self._read_stream is None or offset != self._read_pos:
+            buf_len = len(self._read_buf)
+            buf_end = self._buf_offset + buf_len
+
+            in_buffer = (
+                self._read_stream is not None
+                and self._buf_offset <= offset <= buf_end
+            )
+
+            if not in_buffer:
                 if self._read_stream is not None:
                     await cast(AsyncGenerator[bytes, None], self._read_stream).aclose()
                     self._read_stream = None
                     self._read_iter = None
 
                 self._read_buf = bytearray()
-                self._read_pos = offset
+                self._buf_offset = offset
                 self._read_stream = await self.ops.download(
                     self.path,
                     offset,
@@ -360,9 +367,12 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
                     validate=False,
                 )
                 self._read_iter = self._read_stream.__aiter__()
+            else:
+                discard = offset - self._buf_offset
+                if discard > 0:
+                    self._read_buf = self._read_buf[discard:]
+                    self._buf_offset = offset
 
-            # it is impossible for self._read_iter to be None here given the logic above,
-            # but we cast to satisfy mypy.
             it = cast(AsyncIterator[bytes], self._read_iter)
             while len(self._read_buf) < size:
                 try:
@@ -373,7 +383,7 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
 
             data = self._read_buf[:size]
             self._read_buf = self._read_buf[size:]
-            self._read_pos += len(data)
+            self._buf_offset += len(data)
             return bytes(data)
 
     async def write(self, offset: int, data: bytes) -> int:

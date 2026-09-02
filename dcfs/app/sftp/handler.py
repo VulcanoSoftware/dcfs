@@ -322,6 +322,9 @@ class DCFSSFTPFileBase:
 
 
 class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
+    MAX_FORWARD_SKIP = 2 * 1024 * 1024  # 2 MB forward skip
+    MAX_BACKWARD_RETAIN = 4 * 1024 * 1024  # 4 MB backward retain
+
     def __init__(self, ops: Ops, path: str, mode: str, client_name: str):
         self.ops = ops
         self.path = path
@@ -336,6 +339,7 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
         self._read_buf = bytearray()
         self._read_lock = asyncio.Lock()
         self._cached_attrs: Optional[asyncssh.SFTPAttrs] = None
+        self._highest_offset = 0
 
         # Prefetch state
         self._prefetch_queue: Optional[asyncio.Queue[Optional[Any]]] = None
@@ -376,43 +380,41 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
         self._prefetch_queue = None
         self._prefetch_eof = False
 
+    async def _start_prefetch(self, offset: int) -> None:
+        self._read_buf = bytearray()
+        self._buf_offset = offset
+        self._highest_offset = offset
+        self._read_stream = await self.ops.download(
+            self.path,
+            offset,
+            -1,
+            os.path.basename(self.path),
+            validate=False,
+        )
+        self._prefetch_queue = asyncio.Queue(maxsize=64)
+        self._prefetch_eof = False
+        self._prefetch_task = asyncio.create_task(
+            self._run_prefetch(self._read_stream, self._prefetch_queue)
+        )
+
     async def read(self, offset: int, size: int) -> bytes:
         if "r" not in self.mode:
             raise asyncssh.SFTPPermissionDenied("File not open for reading")
 
         async with self._read_lock:
-            buf_len = len(self._read_buf)
-            buf_end = self._buf_offset + buf_len
+            buf_end = self._buf_offset + len(self._read_buf)
 
-            in_buffer = (
+            can_reuse_stream = (
                 self._read_stream is not None
-                and self._buf_offset <= offset <= buf_end
+                and self._buf_offset <= offset <= buf_end + self.MAX_FORWARD_SKIP
             )
 
-            if not in_buffer:
+            if not can_reuse_stream:
                 await self._stop_prefetch()
+                await self._start_prefetch(offset)
 
-                self._read_buf = bytearray()
-                self._buf_offset = offset
-                self._read_stream = await self.ops.download(
-                    self.path,
-                    offset,
-                    -1,
-                    os.path.basename(self.path),
-                    validate=False,
-                )
-                self._prefetch_queue = asyncio.Queue(maxsize=64)
-                self._prefetch_eof = False
-                self._prefetch_task = asyncio.create_task(
-                    self._run_prefetch(self._read_stream, self._prefetch_queue)
-                )
-            else:
-                discard = offset - self._buf_offset
-                if discard > 0:
-                    self._read_buf = self._read_buf[discard:]
-                    self._buf_offset = offset
-
-            while len(self._read_buf) < size and not self._prefetch_eof:
+            target_end = offset + size
+            while (self._buf_offset + len(self._read_buf) < target_end) and not self._prefetch_eof:
                 if self._prefetch_queue is None:
                     break
                 item = await self._prefetch_queue.get()
@@ -424,10 +426,39 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
                     raise item
                 self._read_buf.extend(item)
 
-            data = self._read_buf[:size]
-            self._read_buf = self._read_buf[size:]
-            self._buf_offset += len(data)
-            return bytes(data)
+            # If stream reached EOF before reaching offset, restart stream at offset
+            if self._prefetch_eof and (self._buf_offset + len(self._read_buf) <= offset) and size > 0:
+                await self._stop_prefetch()
+                await self._start_prefetch(offset)
+                while (self._buf_offset + len(self._read_buf) < target_end) and not self._prefetch_eof:
+                    if self._prefetch_queue is None:
+                        break
+                    item = await self._prefetch_queue.get()
+                    if item is None:
+                        self._prefetch_eof = True
+                        break
+                    if isinstance(item, Exception):
+                        self._prefetch_eof = True
+                        raise item
+                    self._read_buf.extend(item)
+
+            rel_offset = offset - self._buf_offset
+            if rel_offset >= 0 and rel_offset < len(self._read_buf):
+                data = bytes(self._read_buf[rel_offset : rel_offset + size])
+            else:
+                data = b""
+
+            self._highest_offset = max(self._highest_offset, offset + len(data))
+
+            # Prune buffer behind prune_target to keep memory bounded
+            prune_target = self._highest_offset - self.MAX_BACKWARD_RETAIN
+            if prune_target > self._buf_offset:
+                discard = min(prune_target - self._buf_offset, len(self._read_buf))
+                if discard > 0:
+                    self._read_buf = self._read_buf[discard:]
+                    self._buf_offset += discard
+
+            return data
 
     async def write(self, offset: int, data: bytes) -> int:
         if "w" not in self.mode:

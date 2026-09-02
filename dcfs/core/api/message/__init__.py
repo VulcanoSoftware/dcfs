@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Iterable, Iterator, List
+from typing import AsyncIterator, Iterable, Iterator, List
 
 from pyrate_limiter import Duration, InMemoryBucket, Limiter, Rate
 
@@ -19,7 +19,6 @@ from dcfs.reqres import (
     SendFileReq,
     SendTextReq,
 )
-from dcfs.utils.chained_async_iterator import ChainedAsyncIterator
 from dcfs.utils.others import exclude_none, is_big_file
 
 from .message_broker import MessageBroker
@@ -180,7 +179,9 @@ class MessageApi(MessageBroker):
         # Split the range into concurrent sub-range downloads so we can
         # utilise CDN bandwidth better for large single-part files.
         n = 4
-        tasks = [
+        sub_ranges = list(self.split_download_tasks(begin, end, n))
+
+        resps = await asyncio.gather(*[
             self.discord_api.next_bot.download_file(
                 DownloadFileReq(
                     chat=self.private_file_channel,
@@ -190,12 +191,50 @@ class MessageApi(MessageBroker):
                     end=e,
                 )
             )
-            for b, e in self.split_download_tasks(begin, end, n)
+            for b, e in sub_ranges
+        ])
+
+        queues: list[asyncio.Queue[object]] = [
+            asyncio.Queue(maxsize=32) for _ in range(n)
         ]
 
-        res = [t.chunks for t in await asyncio.gather(*tasks)]
+        async def _producer(
+            chunks_iter: Iterator[bytes] | AsyncIterator[bytes],
+            q: asyncio.Queue[object],
+        ) -> None:
+            try:
+                if hasattr(chunks_iter, "__anext__"):
+                    async for chunk in chunks_iter:  # type: ignore[union-attr]
+                        await q.put(chunk)
+                else:
+                    for chunk in chunks_iter:  # type: ignore[union-attr]
+                        await q.put(chunk)
+                await q.put(None)
+            except Exception as ex:
+                await q.put(ex)
+
+        producer_tasks = [
+            asyncio.create_task(_producer(resp.chunks, q))
+            for resp, q in zip(resps, queues)
+        ]
+
+        async def _parallel_chunks():
+            try:
+                for q in queues:
+                    while True:
+                        item = await q.get()
+                        if item is None:
+                            break
+                        if isinstance(item, Exception):
+                            raise item
+                        yield item
+            finally:
+                for task in producer_tasks:
+                    if not task.done():
+                        task.cancel()
+
         return DownloadFileResp(
-            chunks=ChainedAsyncIterator(res), size=self._size(begin, end)
+            chunks=_parallel_chunks(), size=self._size(begin, end)
         )
 
     async def download_file(

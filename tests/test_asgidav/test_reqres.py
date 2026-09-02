@@ -1,7 +1,13 @@
 import pytest
 from fastapi import Request
 
-from asgidav.reqres import PropfindRequest, _propfind_response, _propstat, propfind, proppatch
+from asgidav.reqres import (
+    PropfindRequest,
+    _propfind_response,
+    _propstat,
+    propfind,
+    proppatch,
+)
 
 from .common import MockFolder, MockResource
 

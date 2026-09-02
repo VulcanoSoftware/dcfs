@@ -1,7 +1,7 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 import asyncssh
+import pytest
 
 from dcfs.app.sftp.handler import DCFSSFTPBufferedFile
 
@@ -86,5 +86,23 @@ async def test_sftp_buffered_file_eof_and_mode_checks():
     # Write attempt on read mode should fail
     with pytest.raises(asyncssh.SFTPPermissionDenied):
         await file_handle.write(0, b"data")
+
+    await file_handle.close()
+
+
+@pytest.mark.asyncio
+async def test_sftp_buffered_file_prefetch_error():
+    async def mock_error_gen():
+        yield b"chunk1"
+        raise ValueError("Download failed")
+
+    mock_ops = MagicMock()
+    mock_ops.download = AsyncMock(return_value=mock_error_gen())
+
+    file_handle = DCFSSFTPBufferedFile(mock_ops, "/test.txt", "r", "client1")
+
+    # Reading raises the exception propagated from the prefetch worker
+    with pytest.raises(ValueError, match="Download failed"):
+        await file_handle.read(0, 100)
 
     await file_handle.close()

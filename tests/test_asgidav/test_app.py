@@ -1,4 +1,5 @@
 import pytest
+
 from asgidav.app import extract_path_from_destination, split_path
 
 
@@ -48,7 +49,9 @@ class TestAppEndpoints:
     @pytest.mark.asyncio
     async def test_proppatch_endpoint_found(self, mocker):
         from fastapi.testclient import TestClient
+
         from asgidav.app import create_app
+
         from .common import MockResource
 
         mock_get_member = mocker.AsyncMock(return_value=MockResource("/test.txt"))
@@ -62,6 +65,7 @@ class TestAppEndpoints:
     @pytest.mark.asyncio
     async def test_proppatch_endpoint_not_found(self, mocker):
         from fastapi.testclient import TestClient
+
         from asgidav.app import create_app
 
         mock_get_member = mocker.AsyncMock(return_value=None)

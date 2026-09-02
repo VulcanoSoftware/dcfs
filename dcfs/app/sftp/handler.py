@@ -332,11 +332,49 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
 
         # Read streaming state
         self._read_stream: Optional[AsyncIterator[bytes]] = None
-        self._read_iter: Optional[AsyncIterator[bytes]] = None
         self._buf_offset = 0
         self._read_buf = bytearray()
         self._read_lock = asyncio.Lock()
         self._cached_attrs: Optional[asyncssh.SFTPAttrs] = None
+
+        # Prefetch state
+        self._prefetch_queue: Optional[asyncio.Queue[Optional[Any]]] = None
+        self._prefetch_task: Optional[asyncio.Task[None]] = None
+        self._prefetch_eof = False
+
+    async def _run_prefetch(
+        self,
+        stream: AsyncIterator[bytes],
+        queue: asyncio.Queue[Optional[Any]],
+    ) -> None:
+        try:
+            async for chunk in stream:
+                if chunk:
+                    await queue.put(chunk)
+            await queue.put(None)
+        except asyncio.CancelledError:
+            raise
+        except Exception as ex:
+            await queue.put(ex)
+
+    async def _stop_prefetch(self) -> None:
+        if self._prefetch_task is not None and not self._prefetch_task.done():
+            self._prefetch_task.cancel()
+            try:
+                await self._prefetch_task
+            except (asyncio.CancelledError, Exception) as ex:
+                logger.debug(f"Prefetch task stopped: {ex}")
+            self._prefetch_task = None
+
+        if self._read_stream is not None:
+            try:
+                await cast(AsyncGenerator[bytes, None], self._read_stream).aclose()
+            except Exception as ex:
+                logger.debug(f"Error closing read stream: {ex}")
+            self._read_stream = None
+
+        self._prefetch_queue = None
+        self._prefetch_eof = False
 
     async def read(self, offset: int, size: int) -> bytes:
         if "r" not in self.mode:
@@ -352,10 +390,7 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
             )
 
             if not in_buffer:
-                if self._read_stream is not None:
-                    await cast(AsyncGenerator[bytes, None], self._read_stream).aclose()
-                    self._read_stream = None
-                    self._read_iter = None
+                await self._stop_prefetch()
 
                 self._read_buf = bytearray()
                 self._buf_offset = offset
@@ -366,20 +401,28 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
                     os.path.basename(self.path),
                     validate=False,
                 )
-                self._read_iter = self._read_stream.__aiter__()
+                self._prefetch_queue = asyncio.Queue(maxsize=64)
+                self._prefetch_eof = False
+                self._prefetch_task = asyncio.create_task(
+                    self._run_prefetch(self._read_stream, self._prefetch_queue)
+                )
             else:
                 discard = offset - self._buf_offset
                 if discard > 0:
                     self._read_buf = self._read_buf[discard:]
                     self._buf_offset = offset
 
-            it = cast(AsyncIterator[bytes], self._read_iter)
-            while len(self._read_buf) < size:
-                try:
-                    chunk = await anext(it)
-                    self._read_buf.extend(chunk)
-                except StopAsyncIteration:
+            while len(self._read_buf) < size and not self._prefetch_eof:
+                if self._prefetch_queue is None:
                     break
+                item = await self._prefetch_queue.get()
+                if item is None:
+                    self._prefetch_eof = True
+                    break
+                if isinstance(item, Exception):
+                    self._prefetch_eof = True
+                    raise item
+                self._read_buf.extend(item)
 
             data = self._read_buf[:size]
             self._read_buf = self._read_buf[size:]
@@ -410,10 +453,7 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
 
         self.closed = True
 
-        if self._read_stream is not None:
-            await cast(AsyncGenerator[bytes, None], self._read_stream).aclose()
-            self._read_stream = None
-            self._read_iter = None
+        await self._stop_prefetch()
 
         if "w" in self.mode and self.buffer:
             data = bytes(self.buffer)

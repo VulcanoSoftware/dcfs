@@ -6,6 +6,9 @@ CLAUDE.md
 dist/
 coverage.xml
 .coverage
+.mypy_cache/
+.pytest_cache/
+.venv/
 dcfs-gh-pages/.next/
 dcfs-gh-pages/out/
 dcfs-gh-pages/node_modules/

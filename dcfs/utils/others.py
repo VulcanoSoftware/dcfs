@@ -8,4 +8,4 @@ def exclude_none(iterable: Iterable[Optional[T]]) -> Iterable[T]:
 
 
 def is_big_file(size: int) -> bool:
-    return size > 10 * 1024 * 1024  # 10 MB
+    return size >= 2 * 1024 * 1024  # 2 MB

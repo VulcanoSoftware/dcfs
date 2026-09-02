@@ -362,15 +362,15 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
             self._prefetch_task.cancel()
             try:
                 await self._prefetch_task
-            except (asyncio.CancelledError, Exception):
-                pass
+            except (asyncio.CancelledError, Exception) as ex:
+                logger.debug(f"Prefetch task stopped: {ex}")
             self._prefetch_task = None
 
         if self._read_stream is not None:
             try:
                 await cast(AsyncGenerator[bytes, None], self._read_stream).aclose()
-            except Exception:
-                pass
+            except Exception as ex:
+                logger.debug(f"Error closing read stream: {ex}")
             self._read_stream = None
 
         self._prefetch_queue = None

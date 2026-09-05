@@ -7,7 +7,7 @@
 
 # dcfs
 
-Discord becomes a WebDAV server. This project originally started as a fork of [tgfs](https://github.com/TheodoreKrypton/tgfs), but has since diverged into an independent codebase with its own behavior and configuration.
+Discord becomes a WebDAV server. This project originally started as a fork of [tgfs](https://github.com/Xyvran/tgfs), but has since diverged into an independent codebase with its own behavior and configuration.
 
 ## Features
 * Upload and download files to/from a private Discord channel via WebDAV, FTP, SFTP, and SMB

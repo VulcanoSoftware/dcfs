@@ -178,7 +178,7 @@ class MessageApi(MessageBroker):
     async def download_file_parallel(self, message_id: int, begin: int, end: int):
         # Split the range into concurrent sub-range downloads so we can
         # utilise CDN bandwidth better for large single-part files.
-        n = 4
+        n = 8
         sub_ranges = list(self.split_download_tasks(begin, end, n))
 
         resps = await asyncio.gather(*[

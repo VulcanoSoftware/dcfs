@@ -191,7 +191,7 @@ class DiscordBotAPI(IDiscordClient):
 
         logger.info(
             "CDN download: msg=%d range=%d-%d should_range=%s attach_size=%d",
-            req.message_id, req.begin, req.end, should_range, attachment.size,
+            req.message_id, req.begin, req.end, should_range, attach_size,
         )
 
         # Timeout: connect within 15s, download within 120s. Without a
@@ -260,7 +260,7 @@ class DiscordBotAPI(IDiscordClient):
             finally:
                 response.close()
 
-        return DownloadFileResp(chunks=_chunk_generator(), size=attachment.size)
+        return DownloadFileResp(chunks=_chunk_generator(), size=attach_size)
 
     async def search_messages(self, req: SearchMessageReq) -> GetMessagesRespNoNone:
         channel_id = self._parse_channel_id(req.chat)

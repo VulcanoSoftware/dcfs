@@ -322,8 +322,8 @@ class DCFSSFTPFileBase:
 
 
 class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
-    MAX_FORWARD_SKIP = 8 * 1024 * 1024  # 8 MB forward skip
-    MAX_BACKWARD_RETAIN = 8 * 1024 * 1024  # 8 MB backward retain
+    MAX_FORWARD_SKIP = 2 * 1024 * 1024  # 2 MB forward skip
+    MAX_BACKWARD_RETAIN = 4 * 1024 * 1024  # 4 MB backward retain
 
     def __init__(self, ops: Ops, path: str, mode: str, client_name: str):
         self.ops = ops
@@ -391,7 +391,7 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
             os.path.basename(self.path),
             validate=False,
         )
-        self._prefetch_queue = asyncio.Queue(maxsize=256)
+        self._prefetch_queue = asyncio.Queue(maxsize=64)
         self._prefetch_eof = False
         self._prefetch_task = asyncio.create_task(
             self._run_prefetch(self._read_stream, self._prefetch_queue)

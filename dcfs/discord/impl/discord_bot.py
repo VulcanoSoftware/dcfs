@@ -32,7 +32,7 @@ from dcfs.reqres import (
 
 logger = logging.getLogger(__name__)
 
-CHUNK_SIZE = 2 * 1024 * 1024  # 2 MB chunks for downloads
+CHUNK_SIZE = 1024 * 1024  # 1 MB chunks for downloads
 
 
 class DiscordBotAPI(IDiscordClient):

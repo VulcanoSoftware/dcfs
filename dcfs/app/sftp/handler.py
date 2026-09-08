@@ -324,7 +324,6 @@ class DCFSSFTPFileBase:
 class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
     MAX_FORWARD_SKIP = 8 * 1024 * 1024  # 8 MB forward skip
     MAX_BACKWARD_RETAIN = 8 * 1024 * 1024  # 8 MB backward retain
-    BATCH_CHUNK_SIZE = 256 * 1024  # 256 KB batch size for queue pushes
 
     def __init__(self, ops: Ops, path: str, mode: str, client_name: str):
         self.ops = ops
@@ -353,15 +352,9 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
         queue: asyncio.Queue[Optional[Any]],
     ) -> None:
         try:
-            accumulated = bytearray()
             async for chunk in stream:
                 if chunk:
-                    accumulated.extend(chunk)
-                    if len(accumulated) >= self.BATCH_CHUNK_SIZE:
-                        await queue.put(bytes(accumulated))
-                        accumulated.clear()
-            if accumulated:
-                await queue.put(bytes(accumulated))
+                    await queue.put(chunk)
             await queue.put(None)
         except asyncio.CancelledError:
             raise

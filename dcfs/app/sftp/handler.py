@@ -4,6 +4,7 @@ import logging
 import os
 import stat
 import time
+from collections import deque
 from typing import Any, AsyncGenerator, AsyncIterator, Optional, cast
 
 import asyncssh
@@ -333,10 +334,13 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
         self.buffer = bytearray()
         self.closed = False
 
-        # Read streaming state
+        # Read streaming state. Buffered data is kept as the chunks handed
+        # over by the download stream, tagged with their absolute file
+        # offset, so serving a read never copies or shifts the whole buffer.
         self._read_stream: Optional[AsyncIterator[bytes]] = None
         self._buf_offset = 0
-        self._read_buf = bytearray()
+        self._buf_len = 0
+        self._chunks: deque[tuple[int, bytes]] = deque()
         self._read_lock = asyncio.Lock()
         self._cached_attrs: Optional[asyncssh.SFTPAttrs] = None
         self._highest_offset = 0
@@ -380,8 +384,59 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
         self._prefetch_queue = None
         self._prefetch_eof = False
 
+    def _buf_end(self) -> int:
+        return self._buf_offset + self._buf_len
+
+    def _append_chunk(self, chunk: bytes) -> None:
+        if not isinstance(chunk, bytes):
+            chunk = bytes(chunk)
+        self._chunks.append((self._buf_end(), chunk))
+        self._buf_len += len(chunk)
+
+    def _extract(self, offset: int, size: int) -> bytes:
+        """Copy ``size`` bytes starting at ``offset`` out of the buffer."""
+        if size <= 0 or offset < self._buf_offset or offset >= self._buf_end():
+            return b""
+
+        out: Optional[bytearray] = None
+        pos = offset
+        remaining = size
+        for start, chunk in self._chunks:
+            end = start + len(chunk)
+            if end <= pos:
+                continue
+            if start > pos:
+                break
+            rel = pos - start
+            piece = chunk[rel : rel + remaining]
+            if out is None and len(piece) == remaining:
+                # Whole request satisfied by a single chunk: no extra copy.
+                return piece
+            if out is None:
+                out = bytearray()
+            out += piece
+            remaining -= len(piece)
+            pos += len(piece)
+            if remaining == 0:
+                break
+
+        return bytes(out) if out else b""
+
+    def _prune(self) -> None:
+        """Drop chunks that fall behind the backward-retain window."""
+        keep_from = self._highest_offset - self.MAX_BACKWARD_RETAIN
+        while self._chunks:
+            start, chunk = self._chunks[0]
+            end = start + len(chunk)
+            if end > keep_from:
+                break
+            self._chunks.popleft()
+            self._buf_len -= len(chunk)
+            self._buf_offset = end
+
     async def _start_prefetch(self, offset: int) -> None:
-        self._read_buf = bytearray()
+        self._chunks.clear()
+        self._buf_len = 0
         self._buf_offset = offset
         self._highest_offset = offset
         self._read_stream = await self.ops.download(
@@ -397,16 +452,27 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
             self._run_prefetch(self._read_stream, self._prefetch_queue)
         )
 
+    async def _fill_until(self, target_end: int) -> None:
+        while self._buf_end() < target_end and not self._prefetch_eof:
+            if self._prefetch_queue is None:
+                break
+            item = await self._prefetch_queue.get()
+            if item is None:
+                self._prefetch_eof = True
+                break
+            if isinstance(item, Exception):
+                self._prefetch_eof = True
+                raise item
+            self._append_chunk(item)
+
     async def read(self, offset: int, size: int) -> bytes:
         if "r" not in self.mode:
             raise asyncssh.SFTPPermissionDenied("File not open for reading")
 
         async with self._read_lock:
-            buf_end = self._buf_offset + len(self._read_buf)
-
             can_reuse_stream = (
                 self._read_stream is not None
-                and self._buf_offset <= offset <= buf_end + self.MAX_FORWARD_SKIP
+                and self._buf_offset <= offset <= self._buf_end() + self.MAX_FORWARD_SKIP
             )
 
             if not can_reuse_stream:
@@ -414,49 +480,18 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
                 await self._start_prefetch(offset)
 
             target_end = offset + size
-            while (self._buf_offset + len(self._read_buf) < target_end) and not self._prefetch_eof:
-                if self._prefetch_queue is None:
-                    break
-                item = await self._prefetch_queue.get()
-                if item is None:
-                    self._prefetch_eof = True
-                    break
-                if isinstance(item, Exception):
-                    self._prefetch_eof = True
-                    raise item
-                self._read_buf.extend(item)
+            await self._fill_until(target_end)
 
             # If stream reached EOF before reaching offset, restart stream at offset
-            if self._prefetch_eof and (self._buf_offset + len(self._read_buf) <= offset) and size > 0:
+            if self._prefetch_eof and self._buf_end() <= offset and size > 0:
                 await self._stop_prefetch()
                 await self._start_prefetch(offset)
-                while (self._buf_offset + len(self._read_buf) < target_end) and not self._prefetch_eof:
-                    if self._prefetch_queue is None:
-                        break
-                    item = await self._prefetch_queue.get()
-                    if item is None:
-                        self._prefetch_eof = True
-                        break
-                    if isinstance(item, Exception):
-                        self._prefetch_eof = True
-                        raise item
-                    self._read_buf.extend(item)
+                await self._fill_until(target_end)
 
-            rel_offset = offset - self._buf_offset
-            if rel_offset >= 0 and rel_offset < len(self._read_buf):
-                data = bytes(self._read_buf[rel_offset : rel_offset + size])
-            else:
-                data = b""
+            data = self._extract(offset, size)
 
             self._highest_offset = max(self._highest_offset, offset + len(data))
-
-            # Prune buffer behind prune_target to keep memory bounded
-            prune_target = self._highest_offset - self.MAX_BACKWARD_RETAIN
-            if prune_target > self._buf_offset:
-                discard = min(prune_target - self._buf_offset, len(self._read_buf))
-                if discard > 0:
-                    self._read_buf = self._read_buf[discard:]
-                    self._buf_offset += discard
+            self._prune()
 
             return data
 

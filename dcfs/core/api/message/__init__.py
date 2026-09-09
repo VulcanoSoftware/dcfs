@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import AsyncIterator, Iterable, Iterator, List
+from typing import AsyncIterator, Iterable, Iterator, List, cast
 
 from pyrate_limiter import Duration, InMemoryBucket, Limiter, Rate
 
@@ -204,7 +204,7 @@ class MessageApi(MessageBroker):
                     async for chunk in chunks_iter:  # type: ignore[union-attr]
                         await q.put(chunk)
                 else:
-                    for chunk in chunks_iter:  # type: ignore[union-attr]
+                    for chunk in cast(Iterator[bytes], chunks_iter):
                         await q.put(chunk)
                 await q.put(None)
             except Exception as ex:

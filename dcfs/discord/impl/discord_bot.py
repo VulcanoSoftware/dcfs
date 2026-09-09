@@ -42,6 +42,7 @@ class DiscordBotAPI(IDiscordClient):
         self._bot_token = bot_token
         self._http_session: Optional[aiohttp.ClientSession] = None
         self._url_cache: dict[int, tuple[str, int]] = {}
+        self._inflight_fetches: dict[int, asyncio.Future[tuple[str, int]]] = {}
         self._url_cache_lock = asyncio.Lock()
 
     async def _ensure_http_session(self) -> aiohttp.ClientSession:
@@ -163,24 +164,46 @@ class DiscordBotAPI(IDiscordClient):
 
         async with self._url_cache_lock:
             cached = self._url_cache.get(req.message_id)
+            if cached is not None:
+                url, attach_size = cached
+                is_owner = False
+                fut = None
+            elif req.message_id in self._inflight_fetches:
+                is_owner = False
+                fut = self._inflight_fetches[req.message_id]
+            else:
+                is_owner = True
+                fut = asyncio.get_running_loop().create_future()
+                self._inflight_fetches[req.message_id] = fut
 
-        if cached is not None:
-            url, attach_size = cached
-        else:
-            channel = await self._get_channel(channel_id)
-            try:
-                msg = await channel.fetch_message(req.message_id)
-            except discord.NotFound:
-                raise MessageNotFound(req.message_id)
-            if not msg.attachments:
-                raise UnDownloadableMessage(req.message_id)
-            attachment = msg.attachments[0]
-            url = attachment.url
-            attach_size = attachment.size
-            async with self._url_cache_lock:
-                if len(self._url_cache) > 2048:
-                    self._url_cache.clear()
-                self._url_cache[req.message_id] = (url, attach_size)
+        if cached is None:
+            assert fut is not None
+            if is_owner:
+                try:
+                    channel = await self._get_channel(channel_id)
+                    try:
+                        msg = await channel.fetch_message(req.message_id)
+                    except discord.NotFound:
+                        raise MessageNotFound(req.message_id)
+                    if not msg.attachments:
+                        raise UnDownloadableMessage(req.message_id)
+                    attachment = msg.attachments[0]
+                    res = (attachment.url, attachment.size)
+                    async with self._url_cache_lock:
+                        if len(self._url_cache) > 2048:
+                            self._url_cache.clear()
+                        self._url_cache[req.message_id] = res
+                        self._inflight_fetches.pop(req.message_id, None)
+                    fut.set_result(res)
+                except Exception as ex:
+                    async with self._url_cache_lock:
+                        self._inflight_fetches.pop(req.message_id, None)
+                    fut.set_exception(ex)
+                    raise ex
+            else:
+                res = await fut
+
+            url, attach_size = res
 
         session = await self._ensure_http_session()
 

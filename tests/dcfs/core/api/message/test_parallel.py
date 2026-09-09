@@ -24,9 +24,21 @@ async def test_download_file_parallel():
         DownloadFileResp(chunks=mock_chunks([b"part2_chunk1"]), size=10),
         DownloadFileResp(chunks=mock_chunks([b"part3_chunk1"]), size=10),
         DownloadFileResp(chunks=mock_chunks([b"part4_chunk1"]), size=10),
+        DownloadFileResp(chunks=mock_chunks([b"part5_chunk1"]), size=10),
+        DownloadFileResp(chunks=mock_chunks([b"part6_chunk1"]), size=10),
+        DownloadFileResp(chunks=mock_chunks([b"part7_chunk1"]), size=10),
+        DownloadFileResp(chunks=mock_chunks([b"part8_chunk1"]), size=10),
+        DownloadFileResp(chunks=mock_chunks([b"part9_chunk1"]), size=10),
+        DownloadFileResp(chunks=mock_chunks([b"part10_chunk1"]), size=10),
+        DownloadFileResp(chunks=mock_chunks([b"part11_chunk1"]), size=10),
+        DownloadFileResp(chunks=mock_chunks([b"part12_chunk1"]), size=10),
+        DownloadFileResp(chunks=mock_chunks([b"part13_chunk1"]), size=10),
+        DownloadFileResp(chunks=mock_chunks([b"part14_chunk1"]), size=10),
+        DownloadFileResp(chunks=mock_chunks([b"part15_chunk1"]), size=10),
+        DownloadFileResp(chunks=mock_chunks([b"part16_chunk1"]), size=10),
     ]
 
-    resp = await message_api.download_file_parallel(message_id=999, begin=0, end=39)
+    resp = await message_api.download_file_parallel(message_id=999, begin=0, end=159)
 
     chunks = []
     async for chunk in resp.chunks:
@@ -38,5 +50,17 @@ async def test_download_file_parallel():
         b"part2_chunk1",
         b"part3_chunk1",
         b"part4_chunk1",
+        b"part5_chunk1",
+        b"part6_chunk1",
+        b"part7_chunk1",
+        b"part8_chunk1",
+        b"part9_chunk1",
+        b"part10_chunk1",
+        b"part11_chunk1",
+        b"part12_chunk1",
+        b"part13_chunk1",
+        b"part14_chunk1",
+        b"part15_chunk1",
+        b"part16_chunk1",
     ]
-    assert bot.download_file.call_count == 4
+    assert bot.download_file.call_count == 16

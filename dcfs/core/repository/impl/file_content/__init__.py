@@ -233,7 +233,7 @@ class DCMsgFileContentRepository(IFileContentRepository):
         )
 
         queue: asyncio.Queue["tuple[int, Optional[bytes]]"] = asyncio.Queue(
-            maxsize=64
+            maxsize=128
         )
 
         # Shared dict: producer stores its exception HERE before the

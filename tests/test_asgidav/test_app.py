@@ -84,21 +84,25 @@ class TestAppEndpoints:
         from .common import MockResource
 
         mock_res = MockResource("/test.txt")
-        mock_res.overwrite = mocker.AsyncMock()
+        mock_overwrite = mocker.patch.object(
+            mock_res, "overwrite", new_callable=mocker.AsyncMock
+        )
 
         mock_get_member = mocker.AsyncMock(return_value=mock_res)
         app = create_app(get_member=mock_get_member)
         client = TestClient(app)
 
         # 1. PUT with Transfer-Encoding: chunked
-        res1 = client.put("/test.txt", content=b"hello", headers={"Transfer-Encoding": "chunked"})
+        res1 = client.put(
+            "/test.txt", content=b"hello", headers={"Transfer-Encoding": "chunked"}
+        )
         assert res1.status_code == 201
-        assert mock_res.overwrite.called
-        assert mock_res.overwrite.call_args[1]["size"] == -1
+        assert mock_overwrite.called
+        assert mock_overwrite.call_args[1]["size"] == -1
 
         # 2. PUT with fixed Content-Length
-        mock_res.overwrite.reset_mock()
+        mock_overwrite.reset_mock()
         res2 = client.put("/test.txt", content=b"hello")
         assert res2.status_code == 201
-        assert mock_res.overwrite.called
-        assert mock_res.overwrite.call_args[1]["size"] == 5
+        assert mock_overwrite.called
+        assert mock_overwrite.call_args[1]["size"] == 5

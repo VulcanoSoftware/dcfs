@@ -301,7 +301,7 @@ class DiscordBotAPI(IDiscordClient):
             finally:
                 response.close()
 
-        return DownloadFileResp(chunks=_chunk_generator(), size=attachment.size)
+        return DownloadFileResp(chunks=_chunk_generator(), size=size)
 
     async def search_messages(self, req: SearchMessageReq) -> GetMessagesRespNoNone:
         channel_id = self._parse_channel_id(req.chat)

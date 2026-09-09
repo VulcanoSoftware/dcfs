@@ -74,3 +74,31 @@ class TestAppEndpoints:
 
         response = client.request("PROPPATCH", "/nonexistent.txt")
         assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_put_endpoint_calls_overwrite_for_chunked_or_missing_length(self, mocker):
+        from fastapi.testclient import TestClient
+
+        from asgidav.app import create_app
+
+        from .common import MockResource
+
+        mock_res = MockResource("/test.txt")
+        mock_res.overwrite = mocker.AsyncMock()
+
+        mock_get_member = mocker.AsyncMock(return_value=mock_res)
+        app = create_app(get_member=mock_get_member)
+        client = TestClient(app)
+
+        # 1. PUT with Transfer-Encoding: chunked
+        res1 = client.put("/test.txt", content=b"hello", headers={"Transfer-Encoding": "chunked"})
+        assert res1.status_code == 201
+        assert mock_res.overwrite.called
+        assert mock_res.overwrite.call_args[1]["size"] == -1
+
+        # 2. PUT with fixed Content-Length
+        mock_res.overwrite.reset_mock()
+        res2 = client.put("/test.txt", content=b"hello")
+        assert res2.status_code == 201
+        assert mock_res.overwrite.called
+        assert mock_res.overwrite.call_args[1]["size"] == 5

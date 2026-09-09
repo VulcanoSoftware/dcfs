@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 class DCMsgFileContentRepository(IFileContentRepository):
-    def __init__(self, message_api: MessageApi, max_concurrent_parts: int = 6):
+    def __init__(self, message_api: MessageApi, max_concurrent_parts: int = 3):
         self._message_api = message_api
         self._download_semaphore = asyncio.Semaphore(max_concurrent_parts)
         self._upload_semaphore = asyncio.Semaphore(max_concurrent_parts)

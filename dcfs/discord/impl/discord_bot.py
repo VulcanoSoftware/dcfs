@@ -1,10 +1,7 @@
 import asyncio
 import io
 import logging
-import time
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
-from urllib.parse import parse_qs, urlparse
+from typing import Any, List, Optional
 
 import aiohttp
 import discord
@@ -37,31 +34,6 @@ logger = logging.getLogger(__name__)
 
 CHUNK_SIZE = 1024 * 1024  # 1 MB chunks for downloads
 
-# Attachment URLs are signed by Discord and stay valid for ~24h. Caching them
-# removes a REST round trip per downloaded part (and per parallel sub-range),
-# which dominates the latency of multi-part downloads.
-ATTACHMENT_CACHE_TTL = 15 * 60
-ATTACHMENT_EXPIRY_MARGIN = 60
-ATTACHMENT_CACHE_CAPACITY = 4096
-
-
-@dataclass
-class _CachedAttachment:
-    url: str
-    size: int
-    expires_at: float
-
-
-def _url_expiry(url: str) -> Optional[float]:
-    """Return the signed-URL expiry (unix seconds) encoded in ``ex=``."""
-    raw = parse_qs(urlparse(url).query).get("ex", [None])[0]
-    if not raw:
-        return None
-    try:
-        return float(int(raw, 16))
-    except ValueError:
-        return None
-
 
 class DiscordBotAPI(IDiscordClient):
     def __init__(self, bot: discord.Client, bot_token: str):
@@ -69,81 +41,11 @@ class DiscordBotAPI(IDiscordClient):
         self._bot = bot
         self._bot_token = bot_token
         self._http_session: Optional[aiohttp.ClientSession] = None
-        self._attachment_cache: Dict[int, _CachedAttachment] = {}
-        self._attachment_locks: Dict[int, asyncio.Lock] = {}
 
     async def _ensure_http_session(self) -> aiohttp.ClientSession:
         if self._http_session is None or self._http_session.closed:
-            connector = aiohttp.TCPConnector(
-                limit=0,
-                limit_per_host=0,
-                ttl_dns_cache=300,
-                enable_cleanup_closed=True,
-            )
-            self._http_session = aiohttp.ClientSession(
-                connector=connector,
-                read_bufsize=CHUNK_SIZE,
-            )
+            self._http_session = aiohttp.ClientSession()
         return self._http_session
-
-    async def _resolve_attachment(
-        self, channel: Any, message_id: int
-    ) -> _CachedAttachment:
-        """Resolve a message's attachment URL, caching the REST lookup.
-
-        Concurrent callers for the same message (the parallel sub-range
-        downloads) share a single lookup instead of each issuing their own
-        ``fetch_message`` request.
-        """
-        now = time.time()
-        cached = self._attachment_cache.get(message_id)
-        if cached is not None and cached.expires_at > now:
-            return cached
-
-        lock = self._attachment_locks.setdefault(message_id, asyncio.Lock())
-        async with lock:
-            cached = self._attachment_cache.get(message_id)
-            now = time.time()
-            if cached is not None and cached.expires_at > now:
-                return cached
-
-            try:
-                msg = await channel.fetch_message(message_id)
-            except discord.NotFound:
-                raise MessageNotFound(message_id)
-            if not msg.attachments:
-                raise UnDownloadableMessage(message_id)
-            attachment = msg.attachments[0]
-
-            expires_at = now + ATTACHMENT_CACHE_TTL
-            signed_until = _url_expiry(attachment.url)
-            if signed_until is not None:
-                expires_at = min(
-                    expires_at, signed_until - ATTACHMENT_EXPIRY_MARGIN
-                )
-
-            entry = _CachedAttachment(
-                url=attachment.url, size=attachment.size, expires_at=expires_at
-            )
-            self._prune_attachment_cache()
-            self._attachment_cache[message_id] = entry
-            return entry
-
-    def _prune_attachment_cache(self) -> None:
-        if len(self._attachment_cache) < ATTACHMENT_CACHE_CAPACITY:
-            return
-        now = time.time()
-        stale = [
-            mid
-            for mid, entry in self._attachment_cache.items()
-            if entry.expires_at <= now
-        ]
-        if not stale:
-            # Nothing expired yet: drop the oldest insertions instead.
-            stale = list(self._attachment_cache)[: ATTACHMENT_CACHE_CAPACITY // 4]
-        for mid in stale:
-            self._attachment_cache.pop(mid, None)
-            self._attachment_locks.pop(mid, None)
 
     async def _get_channel(self, channel_id: int) -> Any:
         channel = self._bot.get_channel(channel_id)
@@ -252,7 +154,13 @@ class DiscordBotAPI(IDiscordClient):
     async def download_file(self, req: DownloadFileReq) -> DownloadFileResp:
         channel_id = self._parse_channel_id(req.chat)
         channel = await self._get_channel(channel_id)
-        attachment = await self._resolve_attachment(channel, req.message_id)
+        try:
+            msg = await channel.fetch_message(req.message_id)
+        except discord.NotFound:
+            raise MessageNotFound(req.message_id)
+        if not msg.attachments:
+            raise UnDownloadableMessage(req.message_id)
+        attachment = msg.attachments[0]
 
         session = await self._ensure_http_session()
 
@@ -274,12 +182,9 @@ class DiscordBotAPI(IDiscordClient):
         # timeout a slow or hung CDN connection would cause the whole
         # WebDAV GET handler to hang indefinitely, making WinSCP / the
         # client time out with a generic "connection timed out" error.
-        # Timeout: connect within 15s and require progress every 60s. A total
-        # deadline is deliberately avoided: it would abort otherwise healthy
-        # long-running range downloads on slower links.
         timeout = aiohttp.ClientTimeout(
             connect=15.0,
-            sock_read=60.0,
+            total=120.0,
         )
         t0 = asyncio.get_event_loop().time()
         response = await session.get(url, headers=headers, timeout=timeout)

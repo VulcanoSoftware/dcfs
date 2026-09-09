@@ -401,17 +401,7 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
         if "r" not in self.mode:
             raise asyncssh.SFTPPermissionDenied("File not open for reading")
 
-        # Lock-free fast path: if requested range is already in buffer, return immediately
-        rel_offset = offset - self._buf_offset
-        if rel_offset >= 0 and (rel_offset + size) <= len(self._read_buf):
-            return bytes(self._read_buf[rel_offset : rel_offset + size])
-
         async with self._read_lock:
-            # Re-check fast path after acquiring lock
-            rel_offset = offset - self._buf_offset
-            if rel_offset >= 0 and (rel_offset + size) <= len(self._read_buf):
-                return bytes(self._read_buf[rel_offset : rel_offset + size])
-
             buf_end = self._buf_offset + len(self._read_buf)
 
             can_reuse_stream = (
@@ -465,7 +455,7 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
             if prune_target > self._buf_offset:
                 discard = min(prune_target - self._buf_offset, len(self._read_buf))
                 if discard > 0:
-                    del self._read_buf[:discard]
+                    self._read_buf = self._read_buf[discard:]
                     self._buf_offset += discard
 
             return data

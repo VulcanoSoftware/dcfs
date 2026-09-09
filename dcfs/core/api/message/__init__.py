@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Iterable, Iterator, List, cast
+from typing import AsyncIterator, Iterable, Iterator, List
 
 from pyrate_limiter import Duration, InMemoryBucket, Limiter, Rate
 
@@ -178,41 +178,44 @@ class MessageApi(MessageBroker):
     async def download_file_parallel(self, message_id: int, begin: int, end: int):
         # Split the range into concurrent sub-range downloads so we can
         # utilise CDN bandwidth better for large single-part files.
-        n = 8
+        n = 4
         sub_ranges = list(self.split_download_tasks(begin, end, n))
-        chunk_size_kb = get_config().dcfs.download.chunk_size_kb
+
+        resps = await asyncio.gather(*[
+            self.discord_api.next_bot.download_file(
+                DownloadFileReq(
+                    chat=self.private_file_channel,
+                    message_id=message_id,
+                    chunk_size=get_config().dcfs.download.chunk_size_kb,
+                    begin=b,
+                    end=e,
+                )
+            )
+            for b, e in sub_ranges
+        ])
 
         queues: list[asyncio.Queue[object]] = [
-            asyncio.Queue(maxsize=32) for _ in sub_ranges
+            asyncio.Queue(maxsize=32) for _ in range(n)
         ]
 
         async def _producer(
-            b: int, e: int, q: asyncio.Queue[object]
+            chunks_iter: Iterator[bytes] | AsyncIterator[bytes],
+            q: asyncio.Queue[object],
         ) -> None:
             try:
-                resp = await self.discord_api.next_bot.download_file(
-                    DownloadFileReq(
-                        chat=self.private_file_channel,
-                        message_id=message_id,
-                        chunk_size=chunk_size_kb,
-                        begin=b,
-                        end=e,
-                    )
-                )
-                chunks_iter = resp.chunks
                 if hasattr(chunks_iter, "__anext__"):
                     async for chunk in chunks_iter:  # type: ignore[union-attr]
                         await q.put(chunk)
                 else:
-                    for chunk in cast(Iterator[bytes], chunks_iter):
+                    for chunk in chunks_iter:  # type: ignore[union-attr]
                         await q.put(chunk)
                 await q.put(None)
             except Exception as ex:
                 await q.put(ex)
 
         producer_tasks = [
-            asyncio.create_task(_producer(b, e, q))
-            for (b, e), q in zip(sub_ranges, queues)
+            asyncio.create_task(_producer(resp.chunks, q))
+            for resp, q in zip(resps, queues)
         ]
 
         async def _parallel_chunks():

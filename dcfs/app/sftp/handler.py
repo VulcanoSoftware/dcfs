@@ -450,12 +450,12 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
 
             self._highest_offset = max(self._highest_offset, offset + len(data))
 
-            # Prune buffer behind prune_target to keep memory bounded
+            # Prune buffer behind prune_target to keep memory bounded without reallocation
             prune_target = self._highest_offset - self.MAX_BACKWARD_RETAIN
             if prune_target > self._buf_offset:
                 discard = min(prune_target - self._buf_offset, len(self._read_buf))
                 if discard > 0:
-                    self._read_buf = self._read_buf[discard:]
+                    del self._read_buf[:discard]
                     self._buf_offset += discard
 
             return data

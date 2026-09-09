@@ -29,13 +29,6 @@ logger = logging.getLogger(__name__)
 DELETE_BATCH_SIZE = 100
 
 DISCORD_MSG_LIMIT = 4000
-
-# Bounds on the number of concurrent CDN range requests used to fetch a single
-# message attachment, and how many chunks each of them may run ahead.
-MIN_PARALLEL_RANGE_REQUESTS = 4
-MAX_PARALLEL_RANGE_REQUESTS = 8
-PARALLEL_RANGE_TARGET_SIZE = 2 * 1024 * 1024
-PARALLEL_QUEUE_MAXSIZE = 32
 OVERFLOW_SENTINEL = "DCFS_OVERFLOW"
 OVERFLOW_FILENAME = "overflow.json"
 
@@ -182,22 +175,10 @@ class MessageApi(MessageBroker):
     def _size(begin: int, end: int) -> int:
         return end - begin + 1
 
-    @staticmethod
-    def _parallel_split_count(size: int) -> int:
-        """Number of concurrent CDN range requests for a ``size`` byte range.
-
-        Scales with the range size so large parts use more connections, while
-        staying bounded to avoid per-request overhead outweighing the added
-        bandwidth.
-        """
-        scaled = size // PARALLEL_RANGE_TARGET_SIZE
-        return max(MIN_PARALLEL_RANGE_REQUESTS,
-                   min(MAX_PARALLEL_RANGE_REQUESTS, scaled))
-
     async def download_file_parallel(self, message_id: int, begin: int, end: int):
         # Split the range into concurrent sub-range downloads so we can
         # utilise CDN bandwidth better for large single-part files.
-        n = self._parallel_split_count(self._size(begin, end))
+        n = 4
         sub_ranges = list(self.split_download_tasks(begin, end, n))
 
         resps = await asyncio.gather(*[
@@ -214,7 +195,7 @@ class MessageApi(MessageBroker):
         ])
 
         queues: list[asyncio.Queue[object]] = [
-            asyncio.Queue(maxsize=PARALLEL_QUEUE_MAXSIZE) for _ in range(n)
+            asyncio.Queue(maxsize=32) for _ in range(n)
         ]
 
         async def _producer(

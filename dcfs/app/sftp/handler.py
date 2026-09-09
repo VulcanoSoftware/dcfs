@@ -401,7 +401,17 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
         if "r" not in self.mode:
             raise asyncssh.SFTPPermissionDenied("File not open for reading")
 
+        # Fast lock-free path for sequential/pipelined buffer hits
+        rel_offset = offset - self._buf_offset
+        if 0 <= rel_offset and rel_offset + size <= len(self._read_buf):
+            return bytes(self._read_buf[rel_offset : rel_offset + size])
+
         async with self._read_lock:
+            # Re-check inside lock after acquiring
+            rel_offset = offset - self._buf_offset
+            if 0 <= rel_offset and rel_offset + size <= len(self._read_buf):
+                return bytes(self._read_buf[rel_offset : rel_offset + size])
+
             buf_end = self._buf_offset + len(self._read_buf)
 
             can_reuse_stream = (

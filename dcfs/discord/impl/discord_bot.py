@@ -176,8 +176,7 @@ class DiscordBotAPI(IDiscordClient):
                 fut = asyncio.get_running_loop().create_future()
                 self._inflight_fetches[req.message_id] = fut
 
-        if cached is None:
-            assert fut is not None
+        if cached is None and fut is not None:
             if is_owner:
                 try:
                     channel = await self._get_channel(channel_id)

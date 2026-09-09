@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import AsyncIterator, Iterable, Iterator, List, cast
+from typing import Iterable, Iterator, List, cast
 
 from pyrate_limiter import Duration, InMemoryBucket, Limiter, Rate
 
@@ -183,7 +183,7 @@ class MessageApi(MessageBroker):
         chunk_size_kb = get_config().dcfs.download.chunk_size_kb
 
         queues: list[asyncio.Queue[object]] = [
-            asyncio.Queue(maxsize=32) for _ in range(n)
+            asyncio.Queue(maxsize=32) for _ in sub_ranges
         ]
 
         async def _producer(

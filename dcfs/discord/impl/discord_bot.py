@@ -32,7 +32,7 @@ from dcfs.reqres import (
 
 logger = logging.getLogger(__name__)
 
-CHUNK_SIZE = 1024 * 1024  # 1 MB chunks for efficient streaming
+CHUNK_SIZE = 1024 * 1024  # 1 MB chunks for downloads
 
 
 class DiscordBotAPI(IDiscordClient):
@@ -41,18 +41,10 @@ class DiscordBotAPI(IDiscordClient):
         self._bot = bot
         self._bot_token = bot_token
         self._http_session: Optional[aiohttp.ClientSession] = None
-        self._url_cache: dict[int, tuple[str, int]] = {}
-        self._inflight_fetches: dict[int, asyncio.Future[tuple[str, int]]] = {}
-        self._url_cache_lock = asyncio.Lock()
 
     async def _ensure_http_session(self) -> aiohttp.ClientSession:
         if self._http_session is None or self._http_session.closed:
-            connector = aiohttp.TCPConnector(
-                limit=0,
-                ttl_dns_cache=300,
-                enable_cleanup_closed=True,
-            )
-            self._http_session = aiohttp.ClientSession(connector=connector)
+            self._http_session = aiohttp.ClientSession()
         return self._http_session
 
     async def _get_channel(self, channel_id: int) -> Any:
@@ -161,54 +153,21 @@ class DiscordBotAPI(IDiscordClient):
 
     async def download_file(self, req: DownloadFileReq) -> DownloadFileResp:
         channel_id = self._parse_channel_id(req.chat)
-
-        async with self._url_cache_lock:
-            cached = self._url_cache.get(req.message_id)
-            if cached is not None:
-                url, attach_size = cached
-                is_owner = False
-                fut = None
-            elif req.message_id in self._inflight_fetches:
-                is_owner = False
-                fut = self._inflight_fetches[req.message_id]
-            else:
-                is_owner = True
-                fut = asyncio.get_running_loop().create_future()
-                self._inflight_fetches[req.message_id] = fut
-
-        if cached is None and fut is not None:
-            if is_owner:
-                try:
-                    channel = await self._get_channel(channel_id)
-                    try:
-                        msg = await channel.fetch_message(req.message_id)
-                    except discord.NotFound:
-                        raise MessageNotFound(req.message_id)
-                    if not msg.attachments:
-                        raise UnDownloadableMessage(req.message_id)
-                    attachment = msg.attachments[0]
-                    res = (attachment.url, attachment.size)
-                    async with self._url_cache_lock:
-                        if len(self._url_cache) > 2048:
-                            self._url_cache.clear()
-                        self._url_cache[req.message_id] = res
-                        self._inflight_fetches.pop(req.message_id, None)
-                    fut.set_result(res)
-                except Exception as ex:
-                    async with self._url_cache_lock:
-                        self._inflight_fetches.pop(req.message_id, None)
-                    fut.set_exception(ex)
-                    raise ex
-            else:
-                res = await fut
-
-            url, attach_size = res
+        channel = await self._get_channel(channel_id)
+        try:
+            msg = await channel.fetch_message(req.message_id)
+        except discord.NotFound:
+            raise MessageNotFound(req.message_id)
+        if not msg.attachments:
+            raise UnDownloadableMessage(req.message_id)
+        attachment = msg.attachments[0]
 
         session = await self._ensure_http_session()
 
         # Build optional Range header so the CDN only streams the requested
         # byte range (critical for download_file_parallel sub-requests).
         should_range = req.begin > 0 or req.end != -1
+        url = attachment.url
         headers = {}
         if should_range:
             range_end = "" if req.end == -1 else str(req.end)
@@ -216,7 +175,7 @@ class DiscordBotAPI(IDiscordClient):
 
         logger.info(
             "CDN download: msg=%d range=%d-%d should_range=%s attach_size=%d",
-            req.message_id, req.begin, req.end, should_range, attach_size,
+            req.message_id, req.begin, req.end, should_range, attachment.size,
         )
 
         # Timeout: connect within 15s, download within 120s. Without a
@@ -285,7 +244,7 @@ class DiscordBotAPI(IDiscordClient):
             finally:
                 response.close()
 
-        return DownloadFileResp(chunks=_chunk_generator(), size=attach_size)
+        return DownloadFileResp(chunks=_chunk_generator(), size=attachment.size)
 
     async def search_messages(self, req: SearchMessageReq) -> GetMessagesRespNoNone:
         channel_id = self._parse_channel_id(req.chat)

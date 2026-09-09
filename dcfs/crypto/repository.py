@@ -252,11 +252,15 @@ class EncryptingFileContentRepository(IFileContentRepository):
             return 0
         # ``_detect`` already caches per file, so the second call from a HEAD
         # request or a Content-Range computation is free.
-        detected = await self._detect(fv, "")
-        if detected is None:
+        try:
+            detected = await self._detect(fv, "")
+            if detected is None:
+                return fv.size
+            header, _ = detected
+            return _plaintext_size_from_ciphertext(fv.size, header.chunk_size)
+        except InvalidHeaderError as ex:
+            logger.warning(f"Could not verify encryption header for version {fv.id}: {ex}")
             return fv.size
-        header, _ = detected
-        return _plaintext_size_from_ciphertext(fv.size, header.chunk_size)
 
     # -- internals ---------------------------------------------------------
 

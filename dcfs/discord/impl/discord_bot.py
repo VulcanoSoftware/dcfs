@@ -44,6 +44,7 @@ class DiscordBotAPI(IDiscordClient):
         self._url_cache: dict[int, tuple[str, int]] = {}
         self._inflight_fetches: dict[int, asyncio.Future[tuple[str, int]]] = {}
         self._url_cache_lock = asyncio.Lock()
+        self._fetch_message_semaphore = asyncio.Semaphore(3)
 
     async def _ensure_http_session(self) -> aiohttp.ClientSession:
         if self._http_session is None or self._http_session.closed:
@@ -85,7 +86,14 @@ class DiscordBotAPI(IDiscordClient):
 
         async def _fetch(m_id: int) -> Optional[MessageResp]:
             try:
-                msg = await channel.fetch_message(m_id)
+                async with self._fetch_message_semaphore:
+                    msg = await channel.fetch_message(m_id)
+                if msg.attachments:
+                    att = msg.attachments[0]
+                    async with self._url_cache_lock:
+                        if len(self._url_cache) > 2048:
+                            self._url_cache.clear()
+                        self._url_cache[m_id] = (att.url, att.size)
                 return self._to_message_dto(msg)
             except discord.NotFound:
                 return None
@@ -181,7 +189,8 @@ class DiscordBotAPI(IDiscordClient):
                 try:
                     channel = await self._get_channel(channel_id)
                     try:
-                        msg = await channel.fetch_message(req.message_id)
+                        async with self._fetch_message_semaphore:
+                            msg = await channel.fetch_message(req.message_id)
                     except discord.NotFound:
                         raise MessageNotFound(req.message_id)
                     if not msg.attachments:

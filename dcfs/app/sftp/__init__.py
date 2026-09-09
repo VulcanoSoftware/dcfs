@@ -59,8 +59,6 @@ async def create_sftp_server(clients: Clients, config: Config):
         config.dcfs.sftp.port,
         server_host_keys=[host_key],
         sftp_factory=sftp_factory,
-        window_size=16 * 1024 * 1024,
-        max_pktsize=256 * 1024,
     )
 
 async def run_sftp_server(server: asyncssh.SSHListener, host: str, port: int):

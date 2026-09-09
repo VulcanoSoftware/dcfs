@@ -32,7 +32,7 @@ from dcfs.reqres import (
 
 logger = logging.getLogger(__name__)
 
-CHUNK_SIZE = 2 * 1024 * 1024  # 2 MB chunks for downloads
+CHUNK_SIZE = 1024 * 1024  # 1 MB chunks for efficient streaming
 
 
 class DiscordBotAPI(IDiscordClient):
@@ -162,19 +162,22 @@ class DiscordBotAPI(IDiscordClient):
         channel_id = self._parse_channel_id(req.chat)
 
         async with self._url_cache_lock:
-            if req.message_id in self._url_cache:
-                url, attach_size = self._url_cache[req.message_id]
-            else:
-                channel = await self._get_channel(channel_id)
-                try:
-                    msg = await channel.fetch_message(req.message_id)
-                except discord.NotFound:
-                    raise MessageNotFound(req.message_id)
-                if not msg.attachments:
-                    raise UnDownloadableMessage(req.message_id)
-                attachment = msg.attachments[0]
-                url = attachment.url
-                attach_size = attachment.size
+            cached = self._url_cache.get(req.message_id)
+
+        if cached is not None:
+            url, attach_size = cached
+        else:
+            channel = await self._get_channel(channel_id)
+            try:
+                msg = await channel.fetch_message(req.message_id)
+            except discord.NotFound:
+                raise MessageNotFound(req.message_id)
+            if not msg.attachments:
+                raise UnDownloadableMessage(req.message_id)
+            attachment = msg.attachments[0]
+            url = attachment.url
+            attach_size = attachment.size
+            async with self._url_cache_lock:
                 if len(self._url_cache) > 2048:
                     self._url_cache.clear()
                 self._url_cache[req.message_id] = (url, attach_size)

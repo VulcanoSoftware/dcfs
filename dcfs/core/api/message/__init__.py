@@ -180,29 +180,26 @@ class MessageApi(MessageBroker):
         # utilise CDN bandwidth better for large single-part files.
         n = 8
         sub_ranges = list(self.split_download_tasks(begin, end, n))
-
-        resps = await asyncio.gather(*[
-            self.discord_api.next_bot.download_file(
-                DownloadFileReq(
-                    chat=self.private_file_channel,
-                    message_id=message_id,
-                    chunk_size=get_config().dcfs.download.chunk_size_kb,
-                    begin=b,
-                    end=e,
-                )
-            )
-            for b, e in sub_ranges
-        ])
+        chunk_size_kb = get_config().dcfs.download.chunk_size_kb
 
         queues: list[asyncio.Queue[object]] = [
             asyncio.Queue(maxsize=32) for _ in range(n)
         ]
 
         async def _producer(
-            chunks_iter: Iterator[bytes] | AsyncIterator[bytes],
-            q: asyncio.Queue[object],
+            b: int, e: int, q: asyncio.Queue[object]
         ) -> None:
             try:
+                resp = await self.discord_api.next_bot.download_file(
+                    DownloadFileReq(
+                        chat=self.private_file_channel,
+                        message_id=message_id,
+                        chunk_size=chunk_size_kb,
+                        begin=b,
+                        end=e,
+                    )
+                )
+                chunks_iter = resp.chunks
                 if hasattr(chunks_iter, "__anext__"):
                     async for chunk in chunks_iter:  # type: ignore[union-attr]
                         await q.put(chunk)
@@ -214,8 +211,8 @@ class MessageApi(MessageBroker):
                 await q.put(ex)
 
         producer_tasks = [
-            asyncio.create_task(_producer(resp.chunks, q))
-            for resp, q in zip(resps, queues)
+            asyncio.create_task(_producer(b, e, q))
+            for (b, e), q in zip(sub_ranges, queues)
         ]
 
         async def _parallel_chunks():

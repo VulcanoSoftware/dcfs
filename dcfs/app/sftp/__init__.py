@@ -2,6 +2,7 @@ import logging
 import os
 
 import asyncssh
+from asyncssh.encryption import get_encryption_algs
 
 from dcfs.config import DATA_DIR, Config
 from dcfs.core import Clients
@@ -9,6 +10,24 @@ from dcfs.core import Clients
 from .handler import DCFSSFTPHandler
 
 logger = logging.getLogger(__name__)
+
+# AES-GCM runs on the CPU's AES instructions and encrypts roughly five times
+# faster than asyncssh's ChaCha20-Poly1305, which is the default first choice.
+# Every other algorithm keeps its original relative order so no client loses
+# compatibility.
+PREFERRED_ENCRYPTION_ALGS = (
+    "aes128-gcm@openssh.com",
+    "aes256-gcm@openssh.com",
+    "aes128-ctr",
+    "aes256-ctr",
+)
+
+
+def _encryption_algs() -> list[str]:
+    supported = [alg.decode("ascii") for alg in get_encryption_algs()]
+    preferred = [alg for alg in PREFERRED_ENCRYPTION_ALGS if alg in supported]
+    return preferred + [alg for alg in supported if alg not in preferred]
+
 
 class DCFSSFTPServer(asyncssh.SSHServer):
     def __init__(self, clients: Clients, config: Config):
@@ -58,7 +77,11 @@ async def create_sftp_server(clients: Clients, config: Config):
         config.dcfs.sftp.host,
         config.dcfs.sftp.port,
         server_host_keys=[host_key],
-        sftp_factory=sftp_factory
+        sftp_factory=sftp_factory,
+        encryption_algs=_encryption_algs(),
+        # File content is already compressed and/or encrypted, so compression
+        # only burns CPU that the transfer needs.
+        compression_algs=["none"],
     )
 
 async def run_sftp_server(server: asyncssh.SSHListener, host: str, port: int):

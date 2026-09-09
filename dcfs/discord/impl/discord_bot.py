@@ -41,6 +41,56 @@ class DiscordBotAPI(IDiscordClient):
         self._bot = bot
         self._bot_token = bot_token
         self._http_session: Optional[aiohttp.ClientSession] = None
+        self._url_cache: dict[int, tuple[str, int]] = {}
+        self._inflight_fetches: dict[int, asyncio.Future[tuple[str, int]]] = {}
+        self._url_cache_lock = asyncio.Lock()
+
+    def _cache_url(self, message_id: int, url: str, size: int) -> None:
+        if len(self._url_cache) >= 10000:
+            first_key = next(iter(self._url_cache))
+            del self._url_cache[first_key]
+        self._url_cache[message_id] = (url, size)
+
+    async def _fetch_attachment_url_and_size(
+        self, channel_id: int, message_id: int, force_refresh: bool = False
+    ) -> tuple[str, int]:
+        if not force_refresh and message_id in self._url_cache:
+            return self._url_cache[message_id]
+
+        async with self._url_cache_lock:
+            if not force_refresh and message_id in self._url_cache:
+                return self._url_cache[message_id]
+            if message_id in self._inflight_fetches:
+                fut = self._inflight_fetches[message_id]
+            else:
+                loop = asyncio.get_running_loop()
+                fut = loop.create_future()
+                self._inflight_fetches[message_id] = fut
+
+                async def _do_fetch():
+                    try:
+                        channel = await self._get_channel(channel_id)
+                        try:
+                            msg = await channel.fetch_message(message_id)
+                        except discord.NotFound:
+                            raise MessageNotFound(message_id)
+                        if not msg.attachments:
+                            raise UnDownloadableMessage(message_id)
+                        att = msg.attachments[0]
+                        res = (att.url, att.size)
+                        self._cache_url(message_id, att.url, att.size)
+                        if not fut.done():
+                            fut.set_result(res)
+                    except Exception as ex:
+                        if not fut.done():
+                            fut.set_exception(ex)
+                    finally:
+                        async with self._url_cache_lock:
+                            self._inflight_fetches.pop(message_id, None)
+
+                asyncio.create_task(_do_fetch())
+
+        return await fut
 
     async def _ensure_http_session(self) -> aiohttp.ClientSession:
         if self._http_session is None or self._http_session.closed:
@@ -153,21 +203,13 @@ class DiscordBotAPI(IDiscordClient):
 
     async def download_file(self, req: DownloadFileReq) -> DownloadFileResp:
         channel_id = self._parse_channel_id(req.chat)
-        channel = await self._get_channel(channel_id)
-        try:
-            msg = await channel.fetch_message(req.message_id)
-        except discord.NotFound:
-            raise MessageNotFound(req.message_id)
-        if not msg.attachments:
-            raise UnDownloadableMessage(req.message_id)
-        attachment = msg.attachments[0]
+        url, size = await self._fetch_attachment_url_and_size(channel_id, req.message_id)
 
         session = await self._ensure_http_session()
 
         # Build optional Range header so the CDN only streams the requested
         # byte range (critical for download_file_parallel sub-requests).
         should_range = req.begin > 0 or req.end != -1
-        url = attachment.url
         headers = {}
         if should_range:
             range_end = "" if req.end == -1 else str(req.end)
@@ -175,7 +217,7 @@ class DiscordBotAPI(IDiscordClient):
 
         logger.info(
             "CDN download: msg=%d range=%d-%d should_range=%s attach_size=%d",
-            req.message_id, req.begin, req.end, should_range, attachment.size,
+            req.message_id, req.begin, req.end, should_range, size,
         )
 
         # Timeout: connect within 15s, download within 120s. Without a
@@ -187,9 +229,24 @@ class DiscordBotAPI(IDiscordClient):
             total=120.0,
         )
         t0 = asyncio.get_event_loop().time()
-        response = await session.get(url, headers=headers, timeout=timeout)
+        try:
+            response = await session.get(url, headers=headers, timeout=timeout)
+            response.raise_for_status()
+        except aiohttp.ClientResponseError as exc:
+            if exc.status in (401, 403, 404):
+                logger.warning(
+                    "Cached CDN URL for msg=%d failed with status %d, refreshing URL...",
+                    req.message_id, exc.status,
+                )
+                self._url_cache.pop(req.message_id, None)
+                url, size = await self._fetch_attachment_url_and_size(
+                    channel_id, req.message_id, force_refresh=True
+                )
+                response = await session.get(url, headers=headers, timeout=timeout)
+                response.raise_for_status()
+            else:
+                raise
         t1 = asyncio.get_event_loop().time()
-        response.raise_for_status()
 
         # Determine whether the CDN honoured the Range header.
         # 206 Partial Content means it did; 200 OK means it ignored it.
@@ -266,6 +323,7 @@ class DiscordBotAPI(IDiscordClient):
                 size=att.size,
                 mime_type=att.content_type
             )
+            self._cache_url(message.id, att.url, att.size)
         return MessageResp(
             message_id=message.id,
             text=message.content if message.content else "",

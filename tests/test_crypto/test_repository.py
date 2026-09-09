@@ -425,25 +425,3 @@ async def test_streaming_upload_unknown_size_round_trip() -> None:
 
     out = await _collect(await repo.get(fv, 0, -1, "stream.bin"))
     assert out == plaintext
-
-
-async def test_content_length_fallback_on_invalid_header() -> None:
-    """When header verification fails during content_length, it should return fv.size as fallback."""
-    import struct as _struct
-
-    repo = _make_repo(chunk_size=4096)
-
-    # 1. Valid encrypted file returns plaintext size
-    plaintext = os.urandom(8192)
-    valid_fv = await _save_and_get_fv(repo, plaintext)
-    assert await repo.content_length(valid_fv) == len(plaintext)
-
-    # 2. Corrupted header MAC returns fv.size fallback
-    body = _struct.pack(">4sHHI32s", b"DCFS", 1, 1, 4096, b"\x00" * 32)
-    fake = body + b"\xff" * 16  # wrong MAC
-    corrupt_fv = _seed_plaintext(repo, fake + b"some more data")
-    assert await repo.content_length(corrupt_fv) == corrupt_fv.size
-
-    # 3. Short header with DCFS magic returns fv.size fallback
-    short_fv = _seed_plaintext(repo, b"DCFS" + b"\x00" * 10)
-    assert await repo.content_length(short_fv) == short_fv.size

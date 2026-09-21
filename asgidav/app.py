@@ -225,20 +225,24 @@ def create_app(
     @app.put("/{path:path}")
     async def put(request: Request, path: str):
         try:
-            raw_length = request.headers.get("Content-Length", "0").strip()
-            size = int(raw_length) if raw_length else 0
-            if size < 0:
-                size = 0
+            raw_length = request.headers.get("Content-Length", "").strip()
+            if "chunked" in request.headers.get("Transfer-Encoding", "").lower():
+                size = -1
+            elif raw_length:
+                size = int(raw_length)
+                if size < 0:
+                    size = -1
+            else:
+                size = -1
         except (ValueError, TypeError):
             logger.warning(f"PUT {path}: invalid Content-Length '{request.headers.get('Content-Length', '')}'")
-            size = 0
+            size = -1
 
         try:
             if not (member := await get_member(path)):
                 member = await (await root()).create_empty_resource(path)
             if isinstance(member, Resource):
-                if size > 0:
-                    await member.overwrite(request.stream(), size=size)
+                await member.overwrite(request.stream(), size=size)
                 return CREATED
             return CONFLICT("Cannot PUT to a directory")
         except TechnicalError as ex:

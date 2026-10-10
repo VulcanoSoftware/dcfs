@@ -322,7 +322,7 @@ class DCFSSFTPFileBase:
 
 
 class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
-    MAX_FORWARD_SKIP = 2 * 1024 * 1024  # 2 MB forward skip
+    MAX_FORWARD_SKIP = 8 * 1024 * 1024  # 8 MB forward skip
     MAX_BACKWARD_RETAIN = 4 * 1024 * 1024  # 4 MB backward retain
 
     def __init__(self, ops: Ops, path: str, mode: str, client_name: str):
@@ -391,7 +391,7 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
             os.path.basename(self.path),
             validate=False,
         )
-        self._prefetch_queue = asyncio.Queue(maxsize=64)
+        self._prefetch_queue = asyncio.Queue(maxsize=128)
         self._prefetch_eof = False
         self._prefetch_task = asyncio.create_task(
             self._run_prefetch(self._read_stream, self._prefetch_queue)
@@ -401,7 +401,17 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
         if "r" not in self.mode:
             raise asyncssh.SFTPPermissionDenied("File not open for reading")
 
+        # Fast lock-free path for sequential/pipelined buffer hits
+        rel_offset = offset - self._buf_offset
+        if 0 <= rel_offset and rel_offset + size <= len(self._read_buf):
+            return bytes(self._read_buf[rel_offset : rel_offset + size])
+
         async with self._read_lock:
+            # Re-check inside lock after acquiring
+            rel_offset = offset - self._buf_offset
+            if 0 <= rel_offset and rel_offset + size <= len(self._read_buf):
+                return bytes(self._read_buf[rel_offset : rel_offset + size])
+
             buf_end = self._buf_offset + len(self._read_buf)
 
             can_reuse_stream = (
@@ -450,12 +460,12 @@ class DCFSSFTPBufferedFile(DCFSSFTPFileBase):
 
             self._highest_offset = max(self._highest_offset, offset + len(data))
 
-            # Prune buffer behind prune_target to keep memory bounded
+            # Prune buffer behind prune_target to keep memory bounded without reallocation
             prune_target = self._highest_offset - self.MAX_BACKWARD_RETAIN
             if prune_target > self._buf_offset:
                 discard = min(prune_target - self._buf_offset, len(self._read_buf))
                 if discard > 0:
-                    self._read_buf = self._read_buf[discard:]
+                    del self._read_buf[:discard]
                     self._buf_offset += discard
 
             return data

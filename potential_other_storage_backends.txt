@@ -6,3 +6,4 @@
 - basecamp personal
 - Steam Community / Steam Guides
 - Apple iMessage
+- Strava Activity API

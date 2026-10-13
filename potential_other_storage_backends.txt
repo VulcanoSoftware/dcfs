@@ -4,3 +4,4 @@
 - microsoft onenote
 - slack
 - basecamp personal
+- Steam Community / Steam Guides
